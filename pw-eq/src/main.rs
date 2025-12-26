@@ -1,6 +1,7 @@
 use anyhow::Context as _;
 use clap::Parser;
 use pw_util::config::{MANAGED_PROP, SpaJson};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use tabled::{Table, Tabled};
 use tokio::fs;
@@ -150,61 +151,61 @@ async fn describe_eq(profile: &str) -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("EQ '{profile}' not found"))?;
 
     let info = node.info;
-    let _props = &info.props;
 
-    #[derive(Debug, Clone, Default)]
-    struct Band {
-        q: f64,
-        gain: f64,
-        freq: f64,
+    #[derive(Debug, Default)]
+    struct BandInfo {
+        freq: Option<f64>,
+        gain: Option<f64>,
+        q: Option<f64>,
     }
 
-    // if let Some(params) = info.params
-    //     && let Some(props_array) = params.get("Props").and_then(|v| v.as_array())
-    // {
-    //     // Find the Props entry containing band data
-    //     for props_entry in props_array {
-    //         if let Some(params_arr) = props_entry.get("params").and_then(|v| v.as_array()) {
-    //             let mut band_data = vec![];
-    //
-    //             // Parse alternating key-value pairs
-    //             let mut i = 0;
-    //             while i + 1 < params_arr.len() {
-    //                 if let (Some(key), Some(value)) =
-    //                     dbg!((params_arr[i].as_str(), params_arr[i + 1].as_f64()))
-    //                     && let Some(suffix) = dbg!(key.strip_prefix("pweq.band"))
-    //                     && let Some((idx, param_name)) = dbg!(suffix.split_once(':'))
-    //                 {
-    //                     panic!();
-    //                     let idx = idx.parse::<usize>().with_context(|| {
-    //                         format!("invalid band index in parameter name: {key}")
-    //                     })?;
-    //                     band_data.resize(idx + 1, Band::default());
-    //                     match param_name {
-    //                         "Q" => band_data[idx].q = value,
-    //                         "Gain" => band_data[idx].gain = value,
-    //                         "Freq" => band_data[idx].freq = value,
-    //                         _ => anyhow::bail!("Unknown eq band parameter: {param_name}"),
-    //                     }
-    //                 }
-    //                 i += 2;
-    //             }
-    //
-    //             if !band_data.is_empty() {
-    //                 println!("Filter Bands:");
-    //                 println!("─────────────");
-    //
-    //                 for params in band_data {
-    //                     println!(
-    //                         "Freq: {:.2} Hz, Gain: {:.2} dB, Q: {:.2}",
-    //                         params.freq, params.gain, params.q
-    //                     );
-    //                 }
-    //                 break;
-    //             }
-    //         }
-    //     }
-    // }
+    let mut band_info = BTreeMap::<usize, BandInfo>::new();
+    // Dodgy parsing, weird structures. See `pw-dump <id>`
+    for prop in info.params.props {
+        for (key, value) in &prop.params.0 {
+            let Some((idx, param_name)) = key
+                .strip_prefix("pweq.band")
+                .and_then(|s| s.split_once(':'))
+            else {
+                continue;
+            };
+
+            let idx = idx
+                .parse::<usize>()
+                .with_context(|| format!("invalid band index in parameter name: {key}"))?;
+            let value = value
+                .as_f64()
+                .with_context(|| format!("invalid value for parameter {key}"))?;
+
+            let band_info = band_info.entry(idx).or_default();
+            match param_name {
+                "Freq" => band_info.freq = Some(value),
+                "Gain" => band_info.gain = Some(value),
+                "Q" => band_info.q = Some(value),
+                "a0" | "a1" | "a2" | "b0" | "b1" | "b2" => {}
+                _ => anyhow::bail!("Unknown EQ band parameter: {param_name}"),
+            }
+        }
+
+        if !band_info.is_empty() {
+            break;
+        }
+    }
+
+    println!("EQ Profile: {profile}");
+    println!("Node ID: {}", node.id);
+    println!("Bands:");
+    for (idx, band) in band_info {
+        println!(
+            "  Band {idx}: Freq {:.2} Hz Gain {:.2} dB Q {:.2}",
+            band.freq
+                .ok_or_else(|| anyhow::anyhow!("Missing frequency for band {idx}"))?,
+            band.gain
+                .ok_or_else(|| anyhow::anyhow!("Missing gain for band {idx}"))?,
+            band.q
+                .ok_or_else(|| anyhow::anyhow!("Missing Q for band {idx}"))?,
+        );
+    }
 
     Ok(())
 }

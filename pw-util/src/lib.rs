@@ -66,14 +66,16 @@ pub struct PwParams {
     pub enum_format: Vec<serde_json::Value>,
     #[serde(default)]
     pub prop_info: Vec<PwPropInfo>,
-    pub props: Vec<Props>,
+    #[serde(default)]
+    pub props: Vec<Prop>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Props {
-    params: KeyValuePairs<HashMap<String, serde_json::Value>>,
+pub struct Prop {
+    #[serde(default)]
+    pub params: KeyValuePairs<HashMap<String, serde_json::Value>>,
     #[serde(flatten)]
-    fields: HashMap<String, serde_json::Value>,
+    pub fields: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,9 +258,9 @@ mod serde_ex {
             self.non_collection_serialize_error()
         }
 
-        fn serialize_some<T: ?Sized>(self, _value: &T) -> Result<Self::Ok, Self::Error>
+        fn serialize_some<T>(self, _value: &T) -> Result<Self::Ok, Self::Error>
         where
-            T: serde::Serialize,
+            T: serde::Serialize + ?Sized,
         {
             self.non_collection_serialize_error()
         }
@@ -280,18 +282,18 @@ mod serde_ex {
             self.non_collection_serialize_error()
         }
 
-        fn serialize_newtype_struct<T: ?Sized>(
+        fn serialize_newtype_struct<T>(
             self,
             name: &'static str,
             value: &T,
         ) -> Result<Self::Ok, Self::Error>
         where
-            T: serde::Serialize,
+            T: serde::Serialize + ?Sized,
         {
             self.0.serialize_newtype_struct(name, &KeyValuePairs(value))
         }
 
-        fn serialize_newtype_variant<T: ?Sized>(
+        fn serialize_newtype_variant<T>(
             self,
             _name: &'static str,
             _variant_index: u32,
@@ -299,7 +301,7 @@ mod serde_ex {
             _value: &T,
         ) -> Result<Self::Ok, Self::Error>
         where
-            T: serde::Serialize,
+            T: serde::Serialize + ?Sized,
         {
             self.non_collection_serialize_error()
         }
@@ -361,16 +363,16 @@ mod serde_ex {
         type Ok = S::Ok;
         type Error = S::Error;
 
-        fn serialize_key<T: ?Sized>(&mut self, key: &T) -> Result<(), Self::Error>
+        fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
         where
-            T: serde::Serialize,
+            T: serde::Serialize + ?Sized,
         {
             self.0.serialize_element(key)
         }
 
-        fn serialize_value<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+        fn serialize_value<T>(&mut self, value: &T) -> Result<(), Self::Error>
         where
-            T: serde::Serialize,
+            T: serde::Serialize + ?Sized,
         {
             self.0.serialize_element(value)
         }
@@ -384,13 +386,9 @@ mod serde_ex {
         type Ok = S::Ok;
         type Error = S::Error;
 
-        fn serialize_field<T: ?Sized>(
-            &mut self,
-            key: &'static str,
-            value: &T,
-        ) -> Result<(), Self::Error>
+        fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
         where
-            T: serde::Serialize,
+            T: serde::Serialize + ?Sized,
         {
             self.0.serialize_element(key)?;
             self.0.serialize_element(value)

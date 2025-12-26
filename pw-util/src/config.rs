@@ -2,6 +2,8 @@ use crate::apo;
 use serde_json::json;
 use std::fmt;
 
+pub const MANAGED_PROP: &str = "pweq.managed";
+
 /// Wrapper around serde_json::Value that formats as SPA JSON (PipeWire config format)
 pub struct SpaJson<'a> {
     value: &'a serde_json::Value,
@@ -103,7 +105,7 @@ pub fn generate_filter_chain_config(name: &str, apo: &apo::Config) -> String {
                 "capture.props": {
                     "node.name": format!("effect_input.pweq_{name}"),
                     "media.class": "Audio/Sink",
-                    "pweq.managed": true
+                    MANAGED_PROP: true
                 },
                 "playback.props": {
                     "node.name": format!("effect_output.pweq_{name}"),

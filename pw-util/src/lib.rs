@@ -52,7 +52,7 @@ pub struct PwObjectInfo {
     #[serde(flatten)]
     pub fields: HashMap<String, serde_json::Value>,
     #[serde(default)]
-    pub props: Option<HashMap<String, serde_json::Value>>,
+    pub props: HashMap<String, serde_json::Value>,
 }
 
 pub async fn dump() -> Result<Vec<PwDumpObject>> {

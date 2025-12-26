@@ -1,5 +1,7 @@
 use clap::Parser;
+use pw_util::config::MANAGED_PROP;
 use std::path::PathBuf;
+use tabled::{Table, Tabled};
 use tokio::fs;
 
 #[derive(Parser)]
@@ -104,16 +106,35 @@ async fn create_eq(
 async fn list_eqs() -> anyhow::Result<()> {
     let objects = pw_util::dump().await?;
 
-    println!("Available EQ Filters:");
-
-    for obj in objects {
-        // Only look at Node types
-        if obj.object_type != pw_util::PwObjectType::Node {
-            continue;
-        }
-
-        println!("{}", obj.id)
+    #[derive(Tabled)]
+    struct Row {
+        id: u32,
+        name: String,
     }
+
+    let rows = objects
+        .into_iter()
+        .filter(|obj| matches!(obj.object_type, pw_util::PwObjectType::Node))
+        .filter_map(|obj| {
+            let props = &obj.info.as_ref()?.props;
+            let managed = props.get(MANAGED_PROP)?;
+            (managed == true).then_some(obj)
+        })
+        .map(|obj| {
+            let props = &obj.info.as_ref().unwrap().props;
+            let name = props
+                .get("media.name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+            let id = obj.id;
+            Row {
+                id,
+                name: name.to_string(),
+            }
+        });
+
+    let table = Table::new(rows);
+    println!("{table}");
 
     Ok(())
 }

@@ -1,5 +1,4 @@
 use crate::apo;
-use anyhow::Result;
 use serde_json::json;
 use std::fmt;
 
@@ -93,7 +92,7 @@ pub fn generate_filter_chain_config(name: &str, apo: &apo::Config) -> String {
         "context.modules": [{
             "name": "libpipewire-module-filter-chain",
             "args": {
-                "node.description": name,
+                "node.description": format!("{name} equalizer"),
                 "media.name": name,
                 "filter.graph": {
                     "nodes": nodes,
@@ -102,12 +101,12 @@ pub fn generate_filter_chain_config(name: &str, apo: &apo::Config) -> String {
                 "audio.channels": 2,
                 "audio.position": ["FL", "FR"],
                 "capture.props": {
-                    "node.name": format!("effect_input.pweq_{}", name),
+                    "node.name": format!("effect_input.pweq_{name}"),
                     "media.class": "Audio/Sink",
                     "pweq.managed": true
                 },
                 "playback.props": {
-                    "node.name": format!("effect_output.pweq_{}", name),
+                    "node.name": format!("effect_output.pweq_{name}"),
                     "node.passive": true
                 }
             }

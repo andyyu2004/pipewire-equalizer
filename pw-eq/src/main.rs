@@ -97,6 +97,40 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn is_managed_eq(props: &pw_util::PwDumpObject) -> bool {
+    props
+        .info
+        .props
+        .get(MANAGED_PROP)
+        .is_some_and(|managed| managed == true)
+}
+
+/// Find an EQ node by profile name or ID
+async fn find_eq_node(profile: &str) -> anyhow::Result<pw_util::PwDumpObject> {
+    let objects = pw_util::dump().await?;
+
+    // Try to parse as ID first
+    let target_id: Option<u32> = profile.parse().ok();
+
+    objects
+        .into_iter()
+        .filter(|obj| matches!(obj.object_type, pw_util::PwObjectType::Node))
+        .filter(is_managed_eq)
+        .find(|obj| {
+            if let Some(target_id) = target_id {
+                obj.id == target_id
+            } else {
+                let props = &obj.info.props;
+                if let Some(name) = props.get("media.name") {
+                    name == profile
+                } else {
+                    false
+                }
+            }
+        })
+        .ok_or_else(|| anyhow::anyhow!("EQ '{profile}' not found"))
+}
+
 async fn create_eq(
     Create {
         name,
@@ -164,32 +198,7 @@ async fn set_band(
         anyhow::bail!("Persisting changes is not yet implemented");
     }
 
-    let objects = pw_util::dump().await?;
-
-    // Find the EQ node by name or ID
-    let target_id: Option<u32> = profile.parse().ok();
-
-    let node = objects
-        .into_iter()
-        .filter(|obj| matches!(obj.object_type, pw_util::PwObjectType::Node))
-        .filter_map(|obj| {
-            let props = &obj.info.props;
-            let managed = props.get(MANAGED_PROP)?;
-            (managed == true).then_some(obj)
-        })
-        .find(|obj| {
-            if let Some(target_id) = target_id {
-                obj.id == target_id
-            } else {
-                let props = &obj.info.props;
-                if let Some(name) = props.get("media.name") {
-                    name == &profile
-                } else {
-                    false
-                }
-            }
-        })
-        .ok_or_else(|| anyhow::anyhow!("EQ '{profile}' not found"))?;
+    let node = find_eq_node(&profile).await?;
 
     // Build the params array for pw-cli
     let mut params = Vec::new();
@@ -235,33 +244,7 @@ async fn set_band(
 }
 
 async fn describe_eq(profile: &str) -> anyhow::Result<()> {
-    let objects = pw_util::dump().await?;
-
-    // Find the EQ node by name or ID
-    let target_id: Option<u32> = profile.parse().ok();
-
-    let node = objects
-        .into_iter()
-        .filter(|obj| matches!(obj.object_type, pw_util::PwObjectType::Node))
-        .filter_map(|obj| {
-            let props = &obj.info.props;
-            let managed = props.get(MANAGED_PROP)?;
-            (managed == true).then_some(obj)
-        })
-        .find(|obj| {
-            if let Some(target_id) = target_id {
-                obj.id == target_id
-            } else {
-                let props = &obj.info.props;
-                if let Some(name) = props.get("media.name") {
-                    name == profile
-                } else {
-                    false
-                }
-            }
-        })
-        .ok_or_else(|| anyhow::anyhow!("EQ '{profile}' not found"))?;
-
+    let node = find_eq_node(profile).await?;
     let info = node.info;
 
     #[derive(Debug, Default)]
@@ -338,12 +321,8 @@ async fn list_eqs() -> anyhow::Result<()> {
 
     let rows = objects
         .into_iter()
+        .filter(is_managed_eq)
         .filter(|obj| matches!(obj.object_type, pw_util::PwObjectType::Node))
-        .filter_map(|obj| {
-            let props = &obj.info.props;
-            let managed = props.get(MANAGED_PROP)?;
-            (managed == true).then_some(obj)
-        })
         .map(|obj| {
             let props = &obj.info.props;
             let name = props

@@ -147,38 +147,66 @@ async fn describe_eq(profile: &str) -> anyhow::Result<()> {
                 }
             }
         })
-        .ok_or_else(|| anyhow::anyhow!("EQ '{}' not found", profile))?;
+        .ok_or_else(|| anyhow::anyhow!("EQ '{profile}' not found"))?;
 
     let info = node.info;
     let props = &info.props;
 
     // Display basic information
-    let name = props
+    let _name = props
         .get("media.name")
         .and_then(|v| v.as_str())
         .unwrap_or("Unknown");
-    let description = props
+    let _description = props
         .get("node.description")
         .and_then(|v| v.as_str())
         .unwrap_or("Unknown");
 
-    for info in &info.params.prop_info {
-        let Some((idx, field)) = info
-            .name
-            .as_ref()
-            .and_then(|name| name.strip_prefix("pweq.band"))
-            .and_then(|s| s.split_once(':'))
-        else {
-            continue;
-        };
+    // Extract band data from params
+    // PipeWire stores params as a flat array [key1, value1, key2, value2, ...]
+    use std::collections::BTreeMap;
 
-        panic!("Band {}: {}", idx, info.description);
-    }
+    if let Some(params) = info.fields.get("Params")
+        && let Some(props_array) = params.get("Props").and_then(|v| v.as_array()) {
+            // Find the Props entry containing band data
+            for props_entry in props_array {
+                if let Some(params_arr) = props_entry.get("params").and_then(|v| v.as_array()) {
+                    let mut band_data: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
 
-    println!("EQ Profile: {}", name);
-    println!("ID: {}", node.id);
-    println!("Description: {}", description);
-    println!();
+                    // Parse alternating key-value pairs
+                    let mut i = 0;
+                    while i + 1 < params_arr.len() {
+                        if let (Some(key), Some(value)) =
+                            (params_arr[i].as_str(), params_arr[i + 1].as_f64())
+                            && key.starts_with("pweq.band")
+                                && let Some((band, param)) = key.split_once(':') {
+                                    band_data
+                                        .entry(band.to_string())
+                                        .or_default()
+                                        .insert(param.to_string(), value);
+                                }
+                        i += 2;
+                    }
+
+                    if !band_data.is_empty() {
+                        println!("Filter Bands:");
+                        println!("─────────────");
+
+                        for (band_name, params) in band_data {
+                            if let (Some(&freq), Some(&gain), Some(&q)) =
+                                (params.get("Freq"), params.get("Gain"), params.get("Q"))
+                                && freq > 0.0 {
+                                    println!(
+                                        "  {}: Freq={:.1} Hz, Gain={:+.1} dB, Q={:.2}",
+                                        band_name, freq, gain, q
+                                    );
+                                }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
 
     Ok(())
 }

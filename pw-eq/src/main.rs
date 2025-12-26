@@ -50,7 +50,13 @@ struct Set {
     #[arg(short, long, group = "params")]
     freq: Option<f64>,
     /// Set gain in dB
-    #[arg(short, long, group = "params")]
+    #[arg(
+        short,
+        long,
+        group = "params",
+        allow_hyphen_values = true,
+        number_of_values = 1
+    )]
     gain: Option<f64>,
     /// Set Q factor
     #[arg(short, long, group = "params")]

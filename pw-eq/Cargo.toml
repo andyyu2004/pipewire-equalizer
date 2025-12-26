@@ -4,4 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow.workspace = true
 clap = { version = "4.5.53", features = ["derive"] }
+pw-util = { version = "0.1.0", path = "../pw-util" }
+tokio = { version = "1.48.0", features = ["rt-multi-thread", "macros"] }

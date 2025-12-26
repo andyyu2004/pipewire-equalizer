@@ -3,3 +3,6 @@ resolver = "3"
 members = [
     "pw-eq", "pw-util",
 ]
+
+[workspace.dependencies]
+anyhow = "1.0.100"

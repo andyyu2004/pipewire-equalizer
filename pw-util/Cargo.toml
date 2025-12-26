@@ -6,8 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.147", features = ["preserve_order"] }
 tokio = { workspace = true, features = ["fs", "process"] }
+serde_json.workspace = true
 
 [dev-dependencies]
 expect-test = "1.5.1"

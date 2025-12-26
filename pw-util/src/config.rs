@@ -1,8 +1,131 @@
 use crate::apo;
-use serde_json::json;
 use std::fmt;
 
 pub const MANAGED_PROP: &str = "pweq.managed";
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Config {
+    #[serde(rename = "context.modules")]
+    context_modules: Vec<Module>,
+}
+
+impl Config {
+    pub fn from_apo(name: &str, apo: &apo::Config) -> Self {
+        let nodes: Vec<Node> = apo
+            .filters
+            .iter()
+            .map(|filter| Node {
+                node_type: NodeType::Builtin,
+                name: format!("eq_band_{}", filter.number),
+                filter: filter.filter_type.into(),
+                control: Control {
+                    freq: filter.freq,
+                    q: filter.q,
+                    gain: filter.gain,
+                },
+            })
+            .collect();
+
+        let links: Vec<Link> = (0..apo.filters.len().saturating_sub(1))
+            .map(|i| {
+                let curr = &apo.filters[i];
+                let next = &apo.filters[i + 1];
+                Link {
+                    output: format!("eq_band_{}:Out", curr.number),
+                    input: format!("eq_band_{}:In", next.number),
+                }
+            })
+            .collect();
+
+        let module = Module {
+            name: "libpipewire-module-filter-chain".to_string(),
+            args: ModuleArgs {
+                node_description: format!("{name} equalizer"),
+                media_name: name.to_string(),
+                filter_graph: FilterGraph {
+                    nodes: nodes.into_boxed_slice(),
+                    links,
+                },
+            },
+        };
+
+        Config {
+            context_modules: vec![module],
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Module {
+    name: String,
+    args: ModuleArgs,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModuleArgs {
+    #[serde(rename = "node.description")]
+    node_description: String,
+    #[serde(rename = "media.name")]
+    media_name: String,
+    #[serde(rename = "filter.graph")]
+    filter_graph: FilterGraph,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FilterGraph {
+    nodes: Box<[Node]>,
+    links: Vec<Link>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Node {
+    #[serde(rename = "type")]
+    node_type: NodeType,
+    name: String,
+    #[serde(rename = "label")]
+    filter: FilterType,
+    control: Control,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum NodeType {
+    #[serde(rename = "builtin")]
+    Builtin,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum FilterType {
+    #[serde(rename = "bq_peaking")]
+    Peaking,
+    #[serde(rename = "bq_lowshelf")]
+    LowShelf,
+    #[serde(rename = "bq_highshelf")]
+    HighShelf,
+}
+
+impl From<apo::FilterType> for FilterType {
+    fn from(ft: apo::FilterType) -> Self {
+        match ft {
+            apo::FilterType::Peaking => FilterType::Peaking,
+            apo::FilterType::LowShelf => FilterType::LowShelf,
+            apo::FilterType::HighShelf => FilterType::HighShelf,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct Control {
+    freq: f32,
+    q: f32,
+    gain: f32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Link {
+    output: String,
+    input: String,
+}
 
 /// Wrapper around serde_json::Value that formats as SPA JSON (PipeWire config format)
 pub struct SpaJson<'a> {
@@ -58,71 +181,15 @@ impl fmt::Display for SpaJson<'_> {
     }
 }
 
-/// Generate a PipeWire filter-chain config from an AutoEQ .apo file
-pub fn generate_filter_chain_config(name: &str, apo: &apo::Config) -> String {
-    // Build nodes
-    let nodes: Vec<_> = apo
-        .filters
-        .iter()
-        .map(|filter| {
-            json!({
-                "type": "builtin",
-                "name": format!("eq_band_{}", filter.number),
-                "label": filter.filter_type.to_pipewire_label(),
-                "control": {
-                    "Freq": filter.freq,
-                    "Q": filter.q,
-                    "Gain": filter.gain
-                }
-            })
-        })
-        .collect();
-
-    // Build links between bands
-    let links: Vec<_> = (0..apo.filters.len().saturating_sub(1))
-        .map(|i| {
-            let curr = &apo.filters[i];
-            let next = &apo.filters[i + 1];
-            json!({
-                "output": format!("eq_band_{}:Out", curr.number),
-                "input": format!("eq_band_{}:In", next.number)
-            })
-        })
-        .collect();
-
-    let config_json = json!({
-        "context.modules": [{
-            "name": "libpipewire-module-filter-chain",
-            "args": {
-                "node.description": format!("{name} equalizer"),
-                "media.name": name,
-                "filter.graph": {
-                    "nodes": nodes,
-                    "links": links
-                },
-                "audio.channels": 2,
-                "audio.position": ["FL", "FR"],
-                "capture.props": {
-                    "node.name": format!("effect_input.pweq_{name}"),
-                    "media.class": "Audio/Sink",
-                    MANAGED_PROP: true
-                },
-                "playback.props": {
-                    "node.name": format!("effect_output.pweq_{name}"),
-                    "node.passive": true
-                }
-            }
-        }]
-    });
-
-    SpaJson::new(&config_json).to_string()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::apo::{self, FilterType};
+    use crate::{
+        apo::{self, FilterType},
+        config::SpaJson,
+    };
     use expect_test::expect;
+
+    use super::Config;
 
     #[test]
     fn test_generate_config() {
@@ -148,61 +215,48 @@ mod tests {
             ],
         };
 
-        let out = generate_filter_chain_config("test-eq", &config);
+        let cfg = Config::from_apo("test-eq", &config);
+        let out = SpaJson::new(&serde_json::to_value(&cfg).unwrap()).to_string();
 
         expect![[r#"
             {
                 context.modules = [
                     {
+                        name = "libpipewire-module-filter-chain"
                         args = {
-                            audio.channels = 2
-                            audio.position = [
-                                "FL"
-                                "FR"
-                            ]
-                            capture.props = {
-                                media.class = "Audio/Sink"
-                                node.name = "effect_input.pweq_test-eq"
-                                pweq.managed = true
-                            }
+                            node.description = "test-eq equalizer"
+                            media.name = "test-eq"
                             filter.graph = {
-                                links = [
-                                    {
-                                        input = "eq_band_2:In"
-                                        output = "eq_band_1:Out"
-                                    }
-                                ]
                                 nodes = [
                                     {
+                                        type = "builtin"
+                                        name = "eq_band_1"
+                                        label = "bq_peaking"
                                         control = {
                                             Freq = 46.0
-                                            Gain = 0.800000011920929
                                             Q = 2.9000000953674316
+                                            Gain = 0.800000011920929
                                         }
-                                        label = "bq_peaking"
-                                        name = "eq_band_1"
-                                        type = "builtin"
                                     }
                                     {
+                                        type = "builtin"
+                                        name = "eq_band_2"
+                                        label = "bq_lowshelf"
                                         control = {
                                             Freq = 105.0
-                                            Gain = -0.30000001192092896
                                             Q = 0.6669999957084656
+                                            Gain = -0.30000001192092896
                                         }
-                                        label = "bq_lowshelf"
-                                        name = "eq_band_2"
-                                        type = "builtin"
+                                    }
+                                ]
+                                links = [
+                                    {
+                                        output = "eq_band_1:Out"
+                                        input = "eq_band_2:In"
                                     }
                                 ]
                             }
-                            media.name = "test-eq"
-                            node.description = "test-eq"
-                            playback.props = {
-                                node.name = "effect_output.pweq_test-eq"
-                                node.passive = true
-                            }
                         }
-                        name = "libpipewire-module-filter-chain"
                     }
                 ]
             }"#]]

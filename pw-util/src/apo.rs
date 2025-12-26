@@ -2,21 +2,11 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use tokio::fs;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum FilterType {
     Peaking,
     LowShelf,
     HighShelf,
-}
-
-impl FilterType {
-    pub fn to_pipewire_label(&self) -> &str {
-        match self {
-            FilterType::Peaking => "bq_peaking",
-            FilterType::LowShelf => "bq_lowshelf",
-            FilterType::HighShelf => "bq_highshelf",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

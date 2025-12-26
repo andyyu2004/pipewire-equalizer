@@ -329,6 +329,7 @@ dependencies = [
  "clap",
  "dirs",
  "pw-util",
+ "serde_json",
  "tabled",
  "tokio",
 ]

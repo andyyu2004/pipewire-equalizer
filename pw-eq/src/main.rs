@@ -196,14 +196,19 @@ async fn describe_eq(profile: &str) -> anyhow::Result<()> {
     println!("Node ID: {}", node.id);
     println!("Bands:");
     for (idx, band) in band_info {
+        let freq = band
+            .freq
+            .ok_or_else(|| anyhow::anyhow!("Missing frequency for band {idx}"))?;
+        let gain = band
+            .gain
+            .ok_or_else(|| anyhow::anyhow!("Missing gain for band {idx}"))?;
+        let q = band
+            .q
+            .ok_or_else(|| anyhow::anyhow!("Missing Q for band {idx}"))?;
+
         println!(
-            "  Band {idx}: Freq {:.2} Hz Gain {:.2} dB Q {:.2}",
-            band.freq
-                .ok_or_else(|| anyhow::anyhow!("Missing frequency for band {idx}"))?,
-            band.gain
-                .ok_or_else(|| anyhow::anyhow!("Missing gain for band {idx}"))?,
-            band.q
-                .ok_or_else(|| anyhow::anyhow!("Missing Q for band {idx}"))?,
+            "  Band {:>2}: Freq {:>8.2} Hz  Gain {:+5.2} dB  Q {:.2}",
+            idx, freq, gain, q
         );
     }
 

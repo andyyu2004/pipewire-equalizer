@@ -1,8 +1,10 @@
+use anyhow::Context as _;
 use clap::Parser;
 use pw_util::config::MANAGED_PROP;
 use std::path::PathBuf;
 use tabled::{Table, Tabled};
 use tokio::fs;
+use tokio::process::Command;
 
 #[derive(Parser)]
 #[command(name = "pw-eq")]
@@ -49,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
     match args.command {
         Cmd::Create(create) => create_eq(create).await?,
         Cmd::List => list_eqs().await?,
-        Cmd::Use { profile: _ } => todo!(),
+        Cmd::Use { profile } => use_eq(&profile).await?,
         Cmd::Tui => {
             println!("TUI not yet implemented");
         }
@@ -91,15 +93,27 @@ async fn create_eq(
 
     fs::write(&config_file, config_content).await?;
 
-    println!("Created EQ configuration: {}", config_file.display());
-    println!("\nTo activate the EQ, restart PipeWire:");
-    println!("  systemctl --user restart pipewire");
+    // Ideally find a way to not require a restart if possible
+    Command::new("systemctl")
+        .args(["--user", "restart", "pipewire"])
+        .output()
+        .await
+        .context("failed to restart PipeWire")?;
 
     if use_after {
-        println!("\nAfter restart, run:");
-        println!("  pw-eq use {}", name);
+        use_eq(&name).await?;
     }
 
+    Ok(())
+}
+
+async fn use_eq(profile: &str) -> anyhow::Result<()> {
+    // This is a placeholder implementation
+    // In a real implementation, you would set the default sink to the EQ node
+    println!(
+        "Setting EQ '{}' as the default sink (not yet implemented)",
+        profile
+    );
     Ok(())
 }
 

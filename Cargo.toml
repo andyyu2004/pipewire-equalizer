@@ -6,3 +6,4 @@ members = [
 
 [workspace.dependencies]
 anyhow = "1.0.100"
+tokio = "1.48.0"

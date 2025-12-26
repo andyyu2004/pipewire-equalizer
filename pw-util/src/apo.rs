@@ -20,7 +20,7 @@ impl FilterType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ApoFilter {
+pub struct Filter {
     pub number: u32,
     pub enabled: bool,
     pub filter_type: FilterType,
@@ -30,22 +30,22 @@ pub struct ApoFilter {
 }
 
 #[derive(Debug, Clone)]
-pub struct ApoConfig {
+pub struct Config {
     pub preamp: Option<f32>,
-    pub filters: Vec<ApoFilter>,
+    pub filters: Vec<Filter>,
 }
 
 /// Parse an AutoEQ .apo file
-pub async fn parse_apo_file(path: impl AsRef<Path>) -> Result<ApoConfig> {
+pub async fn parse_file(path: impl AsRef<Path>) -> Result<Config> {
     let content = fs::read_to_string(path.as_ref())
         .await
         .context("Failed to read .apo file")?;
 
-    parse_apo(&content)
+    parse(&content)
 }
 
 /// Parse AutoEQ .apo format from a string
-pub fn parse_apo(content: &str) -> Result<ApoConfig> {
+pub fn parse(content: &str) -> Result<Config> {
     let mut preamp = None;
     let mut filters = Vec::new();
 
@@ -81,10 +81,10 @@ pub fn parse_apo(content: &str) -> Result<ApoConfig> {
         }
     }
 
-    Ok(ApoConfig { preamp, filters })
+    Ok(Config { preamp, filters })
 }
 
-fn parse_filter_line(line: &str) -> Result<Option<ApoFilter>> {
+fn parse_filter_line(line: &str) -> Result<Option<Filter>> {
     // Split by ':'
     let parts: Vec<&str> = line.split(':').collect();
     if parts.len() < 2 {
@@ -157,7 +157,7 @@ fn parse_filter_line(line: &str) -> Result<Option<ApoFilter>> {
         }
     }
 
-    Ok(Some(ApoFilter {
+    Ok(Some(Filter {
         number,
         enabled,
         filter_type,
@@ -178,7 +178,7 @@ mod tests {
 
         assert_eq!(
             filter,
-            ApoFilter {
+            Filter {
                 number: 1,
                 enabled: true,
                 filter_type: FilterType::Peaking,
@@ -196,7 +196,7 @@ mod tests {
 
         assert_eq!(
             filter,
-            ApoFilter {
+            Filter {
                 number: 3,
                 enabled: true,
                 filter_type: FilterType::LowShelf,

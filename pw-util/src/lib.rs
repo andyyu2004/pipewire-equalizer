@@ -1,4 +1,5 @@
 pub mod apo;
+pub mod config;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};

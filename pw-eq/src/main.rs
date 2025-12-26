@@ -1,10 +1,11 @@
 use anyhow::Context as _;
 use clap::Parser;
-use pw_util::config::{MANAGED_PROP, SpaJson};
+use pw_util::config::{BAND_PREFIX, MANAGED_PROP, SpaJson};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use tabled::{Table, Tabled};
 use tokio::fs;
+use tokio::process::Command;
 
 #[derive(Parser)]
 #[command(name = "pw-eq")]
@@ -31,20 +32,49 @@ struct Create {
 }
 
 #[derive(Parser)]
+/// Describe an EQ filter in detail
+struct Describe {
+    /// EQ name or ID
+    profile: String,
+}
+
+#[derive(Parser)]
+/// Set EQ band parameters (can only modify existing bands, not add new ones)
+#[command(group(clap::ArgGroup::new("params").required(true).multiple(true)))]
+struct Set {
+    /// EQ name or ID
+    profile: String,
+    /// Band number (depends on preset, use 'describe' to see available bands)
+    band: u32,
+    /// Set frequency in Hz
+    #[arg(short, long, group = "params")]
+    freq: Option<f64>,
+    /// Set gain in dB
+    #[arg(short, long, group = "params")]
+    gain: Option<f64>,
+    /// Set Q factor
+    #[arg(short, long, group = "params")]
+    q: Option<f64>,
+    /// Persist changes to config file
+    #[arg(short, long)]
+    persist: bool,
+}
+
+#[derive(Parser)]
+/// Set an EQ as the default sink
+struct Use {
+    /// EQ name or ID
+    profile: String,
+}
+
+#[derive(Parser)]
 enum Cmd {
     Create(Create),
     /// List available EQ filters
     List,
-    /// Describe an EQ filter in detail
-    Describe {
-        /// EQ name or ID
-        profile: String,
-    },
-    /// Set an EQ as the default sink
-    Use {
-        /// EQ name or ID
-        profile: String,
-    },
+    Describe(Describe),
+    Set(Set),
+    Use(Use),
     /// Interactive TUI mode
     Tui,
 }
@@ -56,8 +86,9 @@ async fn main() -> anyhow::Result<()> {
     match args.command {
         Cmd::Create(create) => create_eq(create).await?,
         Cmd::List => list_eqs().await?,
-        Cmd::Describe { profile } => describe_eq(&profile).await?,
-        Cmd::Use { profile } => use_eq(&profile).await?,
+        Cmd::Describe(describe) => describe_eq(&describe.profile).await?,
+        Cmd::Set(set) => set_band(set).await?,
+        Cmd::Use(use_cmd) => use_eq(&use_cmd.profile).await?,
         Cmd::Tui => {
             println!("TUI not yet implemented");
         }
@@ -65,9 +96,6 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// to set a band live, something like this
-// pw-cli set-param 44 Props '{ params = [ "eq_band_6:Gain", -1.5 ] }'
 
 async fn create_eq(
     Create {
@@ -122,6 +150,90 @@ async fn use_eq(profile: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn set_band(
+    Set {
+        profile,
+        band,
+        freq,
+        gain,
+        q,
+        persist,
+    }: Set,
+) -> anyhow::Result<()> {
+    if persist {
+        anyhow::bail!("Persisting changes is not yet implemented");
+    }
+
+    let objects = pw_util::dump().await?;
+
+    // Find the EQ node by name or ID
+    let target_id: Option<u32> = profile.parse().ok();
+
+    let node = objects
+        .into_iter()
+        .filter(|obj| matches!(obj.object_type, pw_util::PwObjectType::Node))
+        .filter_map(|obj| {
+            let props = &obj.info.props;
+            let managed = props.get(MANAGED_PROP)?;
+            (managed == true).then_some(obj)
+        })
+        .find(|obj| {
+            if let Some(target_id) = target_id {
+                obj.id == target_id
+            } else {
+                let props = &obj.info.props;
+                if let Some(name) = props.get("media.name") {
+                    name == &profile
+                } else {
+                    false
+                }
+            }
+        })
+        .ok_or_else(|| anyhow::anyhow!("EQ '{profile}' not found"))?;
+
+    // Build the params array for pw-cli
+    let mut params = Vec::new();
+
+    if let Some(freq_val) = freq {
+        params.push(format!("\"{}{}:Freq\"", BAND_PREFIX, band));
+        params.push(freq_val.to_string());
+    }
+
+    if let Some(gain_val) = gain {
+        params.push(format!("\"{}{}:Gain\"", BAND_PREFIX, band));
+        params.push(gain_val.to_string());
+    }
+
+    if let Some(q_val) = q {
+        params.push(format!("\"{}{}:Q\"", BAND_PREFIX, band));
+        params.push(q_val.to_string());
+    }
+
+    let params_str = params.join(", ");
+    let cmd = format!(
+        "pw-cli set-param {} Props '{{ params = [ {} ] }}'",
+        node.id, params_str
+    );
+
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(&cmd)
+        .output()
+        .await
+        .context("Failed to execute pw-cli")?;
+
+    if !output.status.success() {
+        anyhow::bail!("pw-cli failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    println!(
+        "Updated band {} on EQ '{}' (node {})",
+        band, profile, node.id
+    );
+
+    Ok(())
+}
+
 async fn describe_eq(profile: &str) -> anyhow::Result<()> {
     let objects = pw_util::dump().await?;
 
@@ -164,7 +276,7 @@ async fn describe_eq(profile: &str) -> anyhow::Result<()> {
     for prop in info.params.props {
         for (key, value) in &prop.params.0 {
             let Some((idx, param_name)) = key
-                .strip_prefix("pweq.band")
+                .strip_prefix(BAND_PREFIX)
                 .and_then(|s| s.split_once(':'))
             else {
                 continue;

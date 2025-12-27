@@ -9,10 +9,24 @@ pub const BAND_PREFIX: &str = "pweq.band";
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Config {
     #[serde(rename = "context.modules")]
-    context_modules: Vec<Module>,
+    pub context_modules: Vec<Module>,
 }
 
 impl Config {
+    pub fn from_apo(name: &str, apo: &apo::Config) -> Self {
+        Config {
+            context_modules: vec![Module::from_apo(name, apo)],
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Module {
+    pub name: String,
+    pub args: ModuleArgs,
+}
+
+impl Module {
     pub fn from_apo(name: &str, apo: &apo::Config) -> Self {
         let nodes: Vec<Node> = apo
             .filters
@@ -41,7 +55,7 @@ impl Config {
             .collect();
 
         let audio_position = vec![AudioPosition::FrontLeft, AudioPosition::FrontRight];
-        let module = Module {
+        Module {
             name: "libpipewire-module-filter-chain".to_string(),
             args: ModuleArgs {
                 node_description: format!("{name} equalizer"),
@@ -62,18 +76,8 @@ impl Config {
                     pweq_managed: true,
                 },
             },
-        };
-
-        Config {
-            context_modules: vec![module],
         }
     }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Module {
-    name: String,
-    args: ModuleArgs,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

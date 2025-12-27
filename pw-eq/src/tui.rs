@@ -94,6 +94,34 @@ impl EqState {
             band.q = (band.q + delta).clamp(0.1, 10.0);
         }
     }
+
+    fn to_apo_config(&self) -> pw_util::apo::Config {
+        let filters = self
+            .bands
+            .iter()
+            .enumerate()
+            .map(|(idx, band)| pw_util::apo::Filter {
+                number: (idx + 1) as u32,
+                enabled: true,
+                filter_type: pw_util::apo::FilterType::Peaking,
+                freq: band.freq as f32,
+                gain: band.gain as f32,
+                q: band.q as f32,
+            })
+            .collect();
+
+        pw_util::apo::Config {
+            preamp: None,
+            filters,
+        }
+    }
+
+    fn to_spa_json_args(&self) -> String {
+        let apo_config = self.to_apo_config();
+        let module_args = pw_util::config::Module::from_apo(&self.name, &apo_config).args;
+        let json = serde_json::to_value(&module_args).expect("Failed to serialize config");
+        pw_util::config::SpaJson::new(&json).to_string()
+    }
 }
 
 pub async fn run() -> anyhow::Result<()> {
@@ -184,7 +212,7 @@ where
                 tracing::info!(id, name, "module loaded");
             }
             Notif::Error(err) => {
-                tracing::error!("PipeWire error: {err}");
+                tracing::error!(error = &*err, "PipeWire error");
             }
         }
     }
@@ -197,7 +225,7 @@ where
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
-        tracing::error!(key = ?key, "key event");
+        tracing::debug!(key = ?key, "key event");
         match key.code {
             // Quit
             KeyCode::Char('q') | KeyCode::Esc => return Ok(ControlFlow::Break(())),
@@ -228,38 +256,11 @@ where
             KeyCode::Char('a') => self.eq_state.add_band(),
             KeyCode::Char('d') => self.eq_state.delete_selected_band(),
 
-            KeyCode::Char('m') => {
+            KeyCode::Char('l') => {
                 tracing::info!("Loading PipeWire EQ module");
                 let _ = self.pw_tx.send(pw::Message::LoadModule {
                     name: "libpipewire-module-filter-chain".into(),
-                    args: r#"
-{
-      node.description = "Test Dynamic EQ"
-      media.name = "test-dynamic"
-      filter.graph = {
-          nodes = [
-              {
-                  type = "builtin"
-                  name = "eq_band_1"
-                  label = "bq_peaking"
-                  control = { Freq = 1000.0 Q = 1.0 Gain = -3.0 }
-              }
-          ]
-          links = []
-      }
-      audio.channels = 2
-      audio_position = [ "FL" "FR" ]
-      capture.props = {
-          node.name = "effect_output.test_dynamic"
-          media.class = "Audio/Sink"
-      }
-      playback.props = {
-          node.name = "effect_input.test_dynamic"
-          node.passive = false
-      }
-  }
-                    "#
-                    .into(),
+                    args: self.eq_state.to_spa_json_args(),
                 });
             }
 

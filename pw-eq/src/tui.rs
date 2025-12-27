@@ -175,7 +175,11 @@ impl EqState {
 
     fn to_spa_json_args(&self) -> String {
         let apo_config = self.to_apo_config();
-        let module_args = pw_util::config::Module::from_apo(&self.name, &apo_config).args;
+        let module_args = pw_util::config::Module::from_apo(
+            &format!("{}-{}", self.name, self.bands.len()),
+            &apo_config,
+        )
+        .args;
         let json = serde_json::to_value(&module_args).expect("Failed to serialize config");
         let spa_json = pw_util::config::SpaJson::new(&json).to_string();
         tracing::debug!(config = %spa_json, "Generated SPA JSON config");
@@ -227,7 +231,7 @@ where
             panic_rx,
             pw_tx,
             notifs,
-            eq_state: EqState::new("custom".to_string()),
+            eq_state: EqState::new("pweq".to_string()),
         })
     }
 
@@ -326,6 +330,7 @@ where
                 let _ = self.pw_tx.send(pw::Message::LoadModule {
                     name: "libpipewire-module-filter-chain".into(),
                     args: self.eq_state.to_spa_json_args(),
+                    band_count: self.eq_state.bands.len(),
                 });
             }
 

@@ -1,7 +1,7 @@
-use std::ffi::CString;
+use std::{ffi::CString, marker::PhantomData};
 
-use pipewire::context::ContextRc;
 pub use pipewire::module::ModuleInfo;
+use pipewire::{context::ContextRc, module::ModuleInfoRef};
 use pipewire_sys::pw_impl_module;
 
 pub fn load_module(context: &ContextRc, name: &str, args: &str) -> anyhow::Result<ImplModule> {
@@ -26,9 +26,9 @@ pub fn load_module(context: &ContextRc, name: &str, args: &str) -> anyhow::Resul
 pub struct ImplModule(*mut pw_impl_module);
 
 impl ImplModule {
-    pub fn info(&self) -> ModuleInfo {
+    pub fn info(&self) -> &ModuleInfoRef {
         let ptr = unsafe { pipewire_sys::pw_impl_module_get_info(self.0) };
-        ModuleInfo::new(std::ptr::NonNull::new(ptr.cast_mut()).expect("module info is NULL"))
+        unsafe { &*ptr.cast() }
     }
 }
 

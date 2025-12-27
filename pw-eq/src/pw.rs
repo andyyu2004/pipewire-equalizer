@@ -32,7 +32,10 @@ pub fn pw_thread(
                     }
                 };
 
-                dbg!(module.info());
+                let info = module.info();
+                tracing::info!(?info, "loaded module");
+                // std::mem::forget(module);
+                std::mem::forget(info);
             }
         }
     });

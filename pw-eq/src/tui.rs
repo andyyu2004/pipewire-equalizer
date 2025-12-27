@@ -220,7 +220,34 @@ where
                 tracing::info!("Loading PipeWire EQ module");
                 let _ = self.pw_tx.send(pw::Message::LoadModule {
                     name: "libpipewire-module-filter-chain".into(),
-                    args: "filter.chain=\"eq\" filter.eq.profile=\"custom\"".to_string(),
+                    args: r#"
+{
+      node.description = "Test Dynamic EQ"
+      media.name = "test-dynamic"
+      filter.graph = {
+          nodes = [
+              {
+                  type = "builtin"
+                  name = "eq_band_1"
+                  label = "bq_peaking"
+                  control = { Freq = 1000.0 Q = 1.0 Gain = -3.0 }
+              }
+          ]
+          links = []
+      }
+      audio.channels = 2
+      audio_position = [ "FL" "FR" ]
+      capture.props = {
+          node.name = "effect_output.test_dynamic"
+          media.class = "Audio/Sink"
+      }
+      playback.props = {
+          node.name = "effect_input.test_dynamic"
+          node.passive = false
+      }
+  }
+                    "#
+                    .into(),
                 });
             }
 

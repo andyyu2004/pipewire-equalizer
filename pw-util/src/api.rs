@@ -1,4 +1,4 @@
-use std::{ffi::CString, marker::PhantomData};
+use std::ffi::CString;
 
 pub use pipewire::module::ModuleInfo;
 use pipewire::{context::ContextRc, module::ModuleInfoRef};

@@ -112,13 +112,14 @@ pub async fn run() -> anyhow::Result<()> {
     app.run(events).await
 }
 
-pub enum Notification {
+pub enum Notif {
+    ModuleLoaded { id: u32, name: String },
     Error(anyhow::Error),
 }
 
 pub struct App<B: Backend + io::Write> {
     term: Terminal<B>,
-    notifs: tokio::sync::mpsc::Receiver<Notification>,
+    notifs: tokio::sync::mpsc::Receiver<Notif>,
     pw_tx: pipewire::channel::Sender<pw::Message>,
     panic_rx: Receiver<(String, Backtrace)>,
     eq_state: EqState,
@@ -164,24 +165,35 @@ where
 
             tokio::select! {
                 Ok(event) = events.select_next_some() => {
-                    if let Event::Key(key) = event && let ControlFlow::Break(()) = self.handle_key(key)? {
+                    if let ControlFlow::Break(()) = self.handle_event(event)? {
                         break;
                     }
                 }
-                Some(notif) = self.notifs.recv() => {
-                    match notif {
-                        Notification::Error(err) => {
-                            // TODO show in UI
-                            tracing::error!("PipeWire error: {err}");
-                        }
-                    }
-                }
+                Some(notif) = self.notifs.recv() => self.on_notif(notif),
             }
         }
 
         let _ = self.pw_tx.send(pw::Message::Terminate);
 
         Ok(())
+    }
+
+    fn on_notif(&mut self, notif: Notif) {
+        match notif {
+            Notif::ModuleLoaded { id, name } => {
+                tracing::info!(id, name, "module loaded");
+            }
+            Notif::Error(err) => {
+                tracing::error!("PipeWire error: {err}");
+            }
+        }
+    }
+
+    fn handle_event(&mut self, event: Event) -> io::Result<ControlFlow<()>> {
+        match event {
+            Event::Key(key) => self.handle_key(key),
+            _ => Ok(ControlFlow::Continue(())),
+        }
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {

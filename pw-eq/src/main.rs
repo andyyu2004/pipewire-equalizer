@@ -5,15 +5,21 @@ use anyhow::Context as _;
 use clap::Parser;
 use pw_util::config::{BAND_PREFIX, MANAGED_PROP, SpaJson};
 use std::collections::BTreeMap;
+use std::fs::File;
 use std::path::PathBuf;
 use tabled::{Table, Tabled};
 use tokio::fs;
 use tokio::process::Command;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt as _;
 
 #[derive(Parser)]
 #[command(name = "pw-eq")]
 #[command(about = "PipeWire Parametric Equalizer Control")]
 struct Args {
+    #[clap(long)]
+    pub log_file: Option<PathBuf>,
     #[clap(subcommand)]
     command: Cmd,
 }
@@ -93,6 +99,24 @@ enum Cmd {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    // Set up tracing subscriber with file logging
+    let _guard = if let Some(log_file_path) = args.log_file {
+        let file = File::create(log_file_path)?;
+        let (writer, guard) = tracing_appender::non_blocking(file);
+
+        tracing_subscriber::registry()
+            .with(EnvFilter::try_from_env("PWEQ_LOG").unwrap_or_else(|_| EnvFilter::new("info")))
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(writer)
+                    .with_ansi(false),
+            )
+            .init();
+        Some(guard)
+    } else {
+        None
+    };
 
     match args.command {
         Cmd::Create(create) => create_eq(create).await?,

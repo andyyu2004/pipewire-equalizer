@@ -112,8 +112,13 @@ pub async fn run() -> anyhow::Result<()> {
     app.run(events).await
 }
 
+pub enum Notification {
+    Error(anyhow::Error),
+}
+
 pub struct App<B: Backend + io::Write> {
     term: Terminal<B>,
+    notifs: tokio::sync::mpsc::Receiver<Notification>,
     pw_tx: pipewire::channel::Sender<pw::Message>,
     panic_rx: Receiver<(String, Backtrace)>,
     eq_state: EqState,
@@ -126,12 +131,14 @@ where
 {
     pub fn new(term: Terminal<B>, panic_rx: Receiver<(String, Backtrace)>) -> io::Result<Self> {
         let (pw_tx, rx) = pipewire::channel::channel();
-        std::thread::spawn(|| pw_thread(rx));
+        let (notifs_tx, notifs) = tokio::sync::mpsc::channel(100);
+        std::thread::spawn(|| pw_thread(notifs_tx, rx));
 
         Ok(Self {
             term,
             panic_rx,
             pw_tx,
+            notifs,
             eq_state: EqState::new("custom".to_string()),
         })
     }
@@ -159,6 +166,14 @@ where
                 Ok(event) = events.select_next_some() => {
                     if let Event::Key(key) = event && let ControlFlow::Break(()) = self.handle_key(key)? {
                         break;
+                    }
+                }
+                Some(notif) = self.notifs.recv() => {
+                    match notif {
+                        Notification::Error(err) => {
+                            // TODO show in UI
+                            tracing::error!("PipeWire error: {err}");
+                        }
                     }
                 }
             }

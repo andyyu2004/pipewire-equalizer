@@ -8,3 +8,4 @@ members = [
 anyhow = "1.0.100"
 tokio = "1.48.0"
 serde_json = { version = "1.0.147", features = ["preserve_order"] }
+tracing = "0.1.44"

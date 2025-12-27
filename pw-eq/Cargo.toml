@@ -11,3 +11,6 @@ pw-util = { version = "0.1.0", path = "../pw-util" }
 tabled = "0.20.0"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process"] }
 serde_json.workspace = true
+crossterm = { version = "0.29.0", features = ["event-stream"] }
+ratatui = "0.30.0"
+futures-util = "0.3.31"

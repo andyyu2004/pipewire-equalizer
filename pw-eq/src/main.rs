@@ -1,3 +1,5 @@
+mod tui;
+
 use anyhow::Context as _;
 use clap::Parser;
 use pw_util::config::{BAND_PREFIX, MANAGED_PROP, SpaJson};
@@ -97,9 +99,7 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Describe(describe) => describe_eq(&describe.profile).await?,
         Cmd::Set(set) => set_band(set).await?,
         Cmd::Use(use_cmd) => use_eq(&use_cmd.profile).await?,
-        Cmd::Tui => {
-            println!("TUI not yet implemented");
-        }
+        Cmd::Tui => tui::run().await?,
     }
 
     Ok(())

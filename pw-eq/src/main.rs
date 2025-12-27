@@ -7,6 +7,7 @@ use pw_eq::{find_eq_node, use_eq};
 use pw_util::config::BAND_PREFIX;
 use std::collections::BTreeMap;
 use std::fs::File;
+use std::num::NonZero;
 use std::path::PathBuf;
 use tabled::Table;
 use tokio::fs;
@@ -54,7 +55,7 @@ struct Set {
     /// EQ name or ID
     profile: String,
     /// Band number (depends on preset, use 'describe' to see available bands)
-    band: u32,
+    band: NonZero<usize>,
     /// Set frequency in Hz
     #[arg(short, long, group = "params")]
     freq: Option<f64>,
@@ -127,7 +128,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Describe(describe) => describe_eq(&describe.profile).await?,
         Cmd::Set(set) => set_band(set).await?,
-        Cmd::Use(use_cmd) => use_eq(&use_cmd.profile).await?,
+        Cmd::Use(use_cmd) => {
+            use_eq(&use_cmd.profile).await?;
+        }
         Cmd::Tui => tui::run().await?,
     }
 
@@ -191,12 +194,7 @@ async fn set_band(
 
     let node = find_eq_node(&profile).await?;
 
-    pw_eq::update_band(
-        node.id,
-        band as usize,
-        pw_eq::UpdateBand { frequency, gain, q },
-    )
-    .await?;
+    pw_eq::update_band(node.id, band, pw_eq::UpdateBand { frequency, gain, q }).await?;
 
     println!(
         "Updated band {} on EQ '{}' (node {})",

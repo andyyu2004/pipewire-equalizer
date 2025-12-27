@@ -1,4 +1,6 @@
-use std::{backtrace::Backtrace, io, ops::ControlFlow, pin::pin, sync::mpsc::Receiver};
+use std::{
+    backtrace::Backtrace, io, num::NonZero, ops::ControlFlow, pin::pin, sync::mpsc::Receiver,
+};
 
 use crossterm::{
     event::{DisableMouseCapture, Event, EventStream, KeyCode, KeyEvent},
@@ -13,13 +15,14 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Paragraph, Row, Table},
 };
+use tokio::sync::mpsc;
 
 use crate::pw::{self, pw_thread};
 
 // EQ Band state
 #[derive(Debug, Clone)]
 struct Band {
-    freq: f64,
+    frequency: f64,
     gain: f64,
     q: f64,
 }
@@ -27,7 +30,7 @@ struct Band {
 impl Default for Band {
     fn default() -> Self {
         Self {
-            freq: 1000.0,
+            frequency: 1000.0,
             gain: 0.0,
             q: 1.0,
         }
@@ -48,37 +51,37 @@ impl EqState {
             name,
             bands: vec![
                 Band {
-                    freq: 50.0,
+                    frequency: 50.0,
                     gain: 0.0,
                     q: 1.0,
                 },
                 Band {
-                    freq: 100.0,
+                    frequency: 100.0,
                     gain: 0.0,
                     q: 1.0,
                 },
                 Band {
-                    freq: 200.0,
+                    frequency: 200.0,
                     gain: 0.0,
                     q: 1.0,
                 },
                 Band {
-                    freq: 500.0,
+                    frequency: 500.0,
                     gain: 0.0,
                     q: 1.0,
                 },
                 Band {
-                    freq: 2000.0,
+                    frequency: 2000.0,
                     gain: 0.0,
                     q: 1.0,
                 },
                 Band {
-                    freq: 5000.0,
+                    frequency: 5000.0,
                     gain: 0.0,
                     q: 1.0,
                 },
                 Band {
-                    freq: 10000.0,
+                    frequency: 10000.0,
                     gain: 0.0,
                     q: 1.0,
                 },
@@ -99,14 +102,14 @@ impl EqState {
         let new_freq = if self.selected_band + 1 < self.bands.len() {
             let next_band = &self.bands[self.selected_band + 1];
             // Geometric mean (better for logarithmic frequency scale)
-            (current_band.freq * next_band.freq).sqrt()
+            (current_band.frequency * next_band.frequency).sqrt()
         } else {
             // If at the end, go halfway to 20kHz in log space
-            (current_band.freq * 20000.0).sqrt().min(20000.0)
+            (current_band.frequency * 20000.0).sqrt().min(20000.0)
         };
 
         let new_band = Band {
-            freq: new_freq,
+            frequency: new_freq,
             gain: 0.0,
             q: current_band.q, // Copy Q from current band
         };
@@ -136,7 +139,7 @@ impl EqState {
 
     fn adjust_freq(&mut self, delta: f64) {
         if let Some(band) = self.bands.get_mut(self.selected_band) {
-            band.freq = (band.freq + delta).clamp(20.0, 20000.0);
+            band.frequency = (band.frequency + delta).clamp(20.0, 20000.0);
         }
     }
 
@@ -161,7 +164,7 @@ impl EqState {
                 number: (idx + 1) as u32,
                 enabled: true,
                 filter_type: pw_util::apo::FilterType::Peaking,
-                freq: band.freq as f32,
+                freq: band.frequency as f32,
                 gain: band.gain as f32,
                 q: band.q as f32,
             })
@@ -210,10 +213,11 @@ pub enum Notif {
 
 pub struct App<B: Backend + io::Write> {
     term: Terminal<B>,
-    notifs: tokio::sync::mpsc::Receiver<Notif>,
+    notifs: mpsc::Receiver<Notif>,
     pw_tx: pipewire::channel::Sender<pw::Message>,
     panic_rx: Receiver<(String, Backtrace)>,
     eq_state: EqState,
+    active_node_id: Option<u32>,
 }
 
 impl<B> App<B>
@@ -223,7 +227,7 @@ where
 {
     pub fn new(term: Terminal<B>, panic_rx: Receiver<(String, Backtrace)>) -> io::Result<Self> {
         let (pw_tx, rx) = pipewire::channel::channel();
-        let (notifs_tx, notifs) = tokio::sync::mpsc::channel(100);
+        let (notifs_tx, notifs) = mpsc::channel(100);
         std::thread::spawn(|| pw_thread(notifs_tx, rx));
 
         Ok(Self {
@@ -232,6 +236,7 @@ where
             pw_tx,
             notifs,
             eq_state: EqState::new("pweq".to_string()),
+            active_node_id: None,
         })
     }
 
@@ -277,9 +282,13 @@ where
                 media_name,
             } => {
                 tracing::info!(id, name, media_name, "module loaded");
-                pw_eq::use_eq(&media_name).await.unwrap_or_else(|err| {
-                    tracing::error!(error = &*err, "failed to use EQ");
-                });
+                let Ok(node_id) = pw_eq::use_eq(&media_name).await.inspect_err(|err| {
+                    tracing::error!(error = %err, "failed to use EQ");
+                }) else {
+                    return;
+                };
+
+                self.active_node_id = Some(node_id);
             }
             Notif::Error(err) => {
                 tracing::error!(error = &*err, "PipeWire error");
@@ -343,6 +352,24 @@ where
             _ => {}
         }
 
+        // TODO only run this if there are state changes
+        // Also debounce a bit
+        if let Some(node_id) = self.active_node_id {
+            let band_idx = NonZero::new(self.eq_state.selected_band + 1).unwrap();
+            let band = &self.eq_state.bands[self.eq_state.selected_band];
+            let update = pw_eq::UpdateBand {
+                frequency: Some(band.frequency),
+                gain: Some(band.gain),
+                q: Some(band.q),
+            };
+
+            tokio::spawn(async move {
+                if let Err(err) = pw_eq::update_band(node_id, band_idx, update).await {
+                    tracing::error!(error = %err, "failed to update band");
+                }
+            });
+        }
+
         Ok(ControlFlow::Continue(()))
     }
 
@@ -387,10 +414,10 @@ where
             .iter()
             .enumerate()
             .map(|(idx, band)| {
-                let freq_str = if band.freq >= 1000.0 {
-                    format!("{:.1}k", band.freq / 1000.0)
+                let freq_str = if band.frequency >= 1000.0 {
+                    format!("{:.1}k", band.frequency / 1000.0)
                 } else {
-                    format!("{:.0}", band.freq)
+                    format!("{:.0}", band.frequency)
                 };
                 let style = if idx == eq_state.selected_band {
                     Style::default()

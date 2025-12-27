@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use anyhow::Context;
 use pw_util::config::{BAND_PREFIX, MANAGED_PROP};
 use tabled::Tabled;
@@ -66,10 +68,10 @@ pub async fn find_eq_node(profile: &str) -> anyhow::Result<pw_util::PwDumpObject
         .ok_or_else(|| anyhow::anyhow!("EQ '{profile}' not found"))
 }
 
-pub async fn use_eq(profile: &str) -> anyhow::Result<()> {
+pub async fn use_eq(profile: &str) -> anyhow::Result<u32> {
     let node = find_eq_node(profile).await?;
     pw_util::set_default(node.id).await?;
-    Ok(())
+    Ok(node.id)
 }
 
 #[derive(Debug, Clone)]
@@ -81,7 +83,7 @@ pub struct UpdateBand {
 
 pub async fn update_band(
     node_id: u32,
-    band_idx: usize,
+    band_idx: NonZero<usize>,
     UpdateBand { frequency, gain, q }: UpdateBand,
 ) -> anyhow::Result<()> {
     // Build the params array for pw-cli

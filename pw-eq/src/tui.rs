@@ -6,12 +6,15 @@ use crossterm::{
     terminal::{self, EnterAlternateScreen},
 };
 use futures_util::{Stream, StreamExt as _};
+use pw_util::pipewire;
 use ratatui::{
     Terminal,
     prelude::{Backend, Constraint, CrosstermBackend, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Paragraph, Row, Table},
 };
+
+use crate::pw::{self, pw_thread};
 
 // EQ Band state
 #[derive(Debug, Clone)]
@@ -111,6 +114,7 @@ pub async fn run() -> anyhow::Result<()> {
 
 pub struct App<B: Backend + io::Write> {
     term: Terminal<B>,
+    pw_tx: pipewire::channel::Sender<pw::Message>,
     panic_rx: Receiver<(String, Backtrace)>,
     eq_state: EqState,
 }
@@ -121,9 +125,13 @@ where
     B::Error: Send + Sync + 'static,
 {
     pub fn new(term: Terminal<B>, panic_rx: Receiver<(String, Backtrace)>) -> io::Result<Self> {
+        let (pw_tx, rx) = pipewire::channel::channel();
+        std::thread::spawn(|| pw_thread(rx));
+
         Ok(Self {
             term,
             panic_rx,
+            pw_tx,
             eq_state: EqState::new("custom".to_string()),
         })
     }
@@ -143,6 +151,7 @@ where
         events: impl Stream<Item = io::Result<Event>>,
     ) -> anyhow::Result<()> {
         let mut events = pin!(events.fuse());
+
         loop {
             self.draw()?;
 
@@ -154,6 +163,9 @@ where
                 }
             }
         }
+
+        let _ = self.pw_tx.send(pw::Message::Terminate);
+
         Ok(())
     }
 

@@ -1,3 +1,4 @@
+mod pw;
 mod tui;
 
 use anyhow::Context as _;

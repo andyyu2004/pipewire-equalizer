@@ -1,3 +1,5 @@
+pub use pipewire;
+
 pub mod apo;
 pub mod config;
 

@@ -4,7 +4,7 @@ use std::{
 };
 
 use crossterm::{
-    event::{DisableMouseCapture, Event, EventStream, KeyCode, KeyEvent},
+    event::{DisableMouseCapture, Event, EventStream, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{self, EnterAlternateScreen},
 };
@@ -416,7 +416,10 @@ where
 
         match key.code {
             // Quit
-            KeyCode::Esc | KeyCode::Char('q') => return Ok(ControlFlow::Break(())),
+            KeyCode::Esc => return Ok(ControlFlow::Break(())),
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                return Ok(ControlFlow::Break(()));
+            }
 
             // Navigation
             KeyCode::Tab | KeyCode::Char('j') => self.eq_state.select_next_band(),
@@ -437,8 +440,8 @@ where
             KeyCode::Char('G') => self.eq_state.adjust_gain(-0.1),
 
             // Q adjustment
-            KeyCode::Char('z') => self.eq_state.adjust_q(0.1),
-            KeyCode::Char('Z') => self.eq_state.adjust_q(-0.1),
+            KeyCode::Char('q') => self.eq_state.adjust_q(0.1),
+            KeyCode::Char('Q') => self.eq_state.adjust_q(-0.1),
 
             // Band management
             KeyCode::Char('a') => self.eq_state.add_band(),
@@ -516,7 +519,7 @@ where
 
             // Footer/Help
             let help = Paragraph::new(
-                "Tab/Shift-Tab/j/k: select | f/F: freq | g/G: gain | z/Z: Q | a: add | d: delete | 0: zero gain | Esc/q: quit"
+                "Tab/Shift-Tab/j/k: select | f/F: freq | g/G: gain | q/Q: Q | a: add | d: delete | 0: zero gain | Esc/q: quit"
             )
             .block(Block::default().borders(Borders::ALL));
             f.render_widget(help, chunks[3]);

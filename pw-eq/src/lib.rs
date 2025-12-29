@@ -115,43 +115,51 @@ impl std::str::FromStr for BandId {
     }
 }
 
-#[tracing::instrument(skip(update))]
-pub async fn update_filter(
+/// Update multiple filter bands in a single pw-cli call
+#[tracing::instrument(skip(updates))]
+pub async fn update_filters(
     node_id: u32,
-    band_id: BandId,
-    update: UpdateFilter,
+    updates: impl IntoIterator<Item = (BandId, UpdateFilter)>,
 ) -> anyhow::Result<()> {
-    tracing::debug!(?update, "updating filter band");
+    let mut updates = updates.into_iter().peekable();
+    if updates.peek().is_none() {
+        tracing::warn!("no filter updates provided");
+        return Ok(());
+    }
+
+    tracing::debug!("updating filter bands");
 
     // Build the params array for pw-cli
     let mut params = Vec::new();
 
-    if let Some(freq) = update.frequency {
-        params.push(format!(r#""{FILTER_PREFIX}{band_id}:Freq""#));
-        params.push(freq.to_string());
-    }
+    for (band_id, update) in updates {
+        if let Some(freq) = update.frequency {
+            params.push(format!(r#""{FILTER_PREFIX}{band_id}:Freq""#));
+            params.push(freq.to_string());
+        }
 
-    if let Some(gain_val) = update.gain {
-        params.push(format!(r#""{FILTER_PREFIX}{band_id}:Gain""#));
-        params.push(gain_val.to_string());
-    }
+        if let Some(gain_val) = update.gain {
+            params.push(format!(r#""{FILTER_PREFIX}{band_id}:Gain""#));
+            params.push(gain_val.to_string());
+        }
 
-    if let Some(q_val) = update.q {
-        params.push(format!(r#""{FILTER_PREFIX}{band_id}:Q""#));
-        params.push(q_val.to_string());
-    }
+        if let Some(q_val) = update.q {
+            params.push(format!(r#""{FILTER_PREFIX}{band_id}:Q""#));
+            params.push(q_val.to_string());
+        }
 
-    if let Some(BiquadCoefficients { b0, b1, b2, a1, a2 }) = update.coeffs {
-        params.push(format!(r#""{FILTER_PREFIX}{band_id}:b0""#));
-        params.push(b0.to_string());
-        params.push(format!(r#""{FILTER_PREFIX}{band_id}:b1""#));
-        params.push(b1.to_string());
-        params.push(format!(r#""{FILTER_PREFIX}{band_id}:b2""#));
-        params.push(b2.to_string());
-        params.push(format!(r#""{FILTER_PREFIX}{band_id}:a1""#));
-        params.push(a1.to_string());
-        params.push(format!(r#""{FILTER_PREFIX}{band_id}:a2""#));
-        params.push(a2.to_string());
+        if let Some(BiquadCoefficients { b0, b1, b2, a1, a2 }) = update.coeffs {
+            params.push(format!(r#""{FILTER_PREFIX}{band_id}:b0""#));
+            params.push(b0.to_string());
+            params.push(format!(r#""{FILTER_PREFIX}{band_id}:b1""#));
+            params.push(b1.to_string());
+            params.push(format!(r#""{FILTER_PREFIX}{band_id}:b2""#));
+            params.push(b2.to_string());
+            params.push(format!(r#""{FILTER_PREFIX}{band_id}:a1""#));
+            params.push(a1.to_string());
+            params.push(format!(r#""{FILTER_PREFIX}{band_id}:a2""#));
+            params.push(a2.to_string());
+        }
     }
 
     let output = Command::new("pw-cli")
@@ -168,4 +176,14 @@ pub async fn update_filter(
     }
 
     Ok(())
+}
+
+/// Update a single filter band (convenience wrapper)
+#[tracing::instrument(skip(update))]
+pub async fn update_filter(
+    node_id: u32,
+    band_id: BandId,
+    update: UpdateFilter,
+) -> anyhow::Result<()> {
+    update_filters(node_id, [(band_id, update)]).await
 }

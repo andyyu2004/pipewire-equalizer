@@ -1,4 +1,4 @@
-use crate::{BandId, UpdateFilter, filter::Filter, update_filter, use_eq};
+use crate::{BandId, UpdateFilter, filter::Filter, update_filters, use_eq};
 use std::{
     backtrace::Backtrace, error::Error, io, num::NonZero, ops::ControlFlow, pin::pin,
     sync::mpsc::Receiver,
@@ -226,56 +226,69 @@ impl EqState {
         .args
     }
 
-    /// Sync preamp gain to PipeWire
-    fn sync_preamp(&self, node_id: u32) {
-        // Still apply preamp even when bypassed. This tends to give a more balanced volume for A/B
-        let update = UpdateFilter {
+    /// Build update for preamp
+    fn build_preamp_update(&self) -> UpdateFilter {
+        UpdateFilter {
             frequency: None,
             gain: Some(self.preamp),
             q: None,
             coeffs: None,
-        };
-
-        tokio::spawn(async move {
-            if let Err(err) = update_filter(node_id, BandId::Preamp, update).await {
-                tracing::error!(error = %err, "failed to update preamp");
-            }
-        });
+        }
     }
 
-    /// Sync a specific filter band to PipeWire
-    fn sync_filter(&self, node_id: u32, band_idx: usize, sample_rate: u32) {
+    fn build_filter_update(&self, band_idx: usize, sample_rate: u32) -> UpdateFilter {
         let band = &self.filters[band_idx];
-        let band_id = NonZero::new(band_idx + 1).unwrap();
-
         let gain = if self.bypassed || band.muted {
             0.0
         } else {
             band.gain
         };
 
-        let coeffs = band.biquad_coeffs(sample_rate as f64);
-        let update = UpdateFilter {
+        UpdateFilter {
             frequency: Some(band.frequency),
             gain: Some(gain),
             q: Some(band.q),
-            coeffs: Some(coeffs),
-        };
+            coeffs: Some(band.biquad_coeffs(sample_rate as f64)),
+        }
+    }
 
+    fn apply_updates(
+        &self,
+        node_id: u32,
+        updates: impl IntoIterator<Item = (BandId, UpdateFilter), IntoIter: Send> + Send + 'static,
+    ) {
         tokio::spawn(async move {
-            if let Err(err) = update_filter(node_id, BandId::Index(band_id), update).await {
-                tracing::error!(error = %err, band_idx, "failed to update band");
+            if let Err(err) = update_filters(node_id, updates).await {
+                tracing::error!(error = %err, "failed to apply filter updates");
             }
         });
     }
 
+    /// Sync preamp gain to PipeWire
+    fn sync_preamp(&self, node_id: u32) {
+        let update = self.build_preamp_update();
+        self.apply_updates(node_id, [(BandId::Preamp, update)]);
+    }
+
+    /// Sync a specific filter band to PipeWire
+    fn sync_filter(&self, node_id: u32, band_idx: usize, sample_rate: u32) {
+        let band_id = BandId::Index(NonZero::new(band_idx + 1).unwrap());
+        let update = self.build_filter_update(band_idx, sample_rate);
+        self.apply_updates(node_id, [(band_id, update)]);
+    }
+
     /// Sync all filters when bypass state changes
     fn sync_bypass(&self, node_id: u32, sample_rate: u32) {
-        self.sync_preamp(node_id);
+        let mut updates = Vec::with_capacity(self.filters.len() + 1);
+
+        updates.push((BandId::Preamp, self.build_preamp_update()));
 
         for idx in 0..self.filters.len() {
-            self.sync_filter(node_id, idx, sample_rate);
+            let band_id = BandId::Index(NonZero::new(idx + 1).unwrap());
+            updates.push((band_id, self.build_filter_update(idx, sample_rate)));
         }
+
+        self.apply_updates(node_id, updates);
     }
 
     /// Generate frequency response curve data for visualization
@@ -677,13 +690,13 @@ where
                 // Create base cells
                 let mut cells = vec![
                     Cell::from(format!("{}", idx + 1)).style(
-                        Style::default().fg(num_color).add_modifier(
-                            if is_selected && !is_dimmed {
+                        Style::default()
+                            .fg(num_color)
+                            .add_modifier(if is_selected && !is_dimmed {
                                 Modifier::BOLD
                             } else {
                                 Modifier::empty()
-                            },
-                        ),
+                            }),
                     ),
                     Cell::from(type_str).style(Style::default().fg(type_color).add_modifier(
                         if is_selected && !is_dimmed {

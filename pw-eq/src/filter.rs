@@ -15,7 +15,7 @@ impl Default for Filter {
         Self {
             frequency: 1000.0,
             gain: 0.0,
-            q: 1.0,
+            q: 1.0 / 1.414,
             filter_type: FilterType::Peaking,
             muted: false,
         }

@@ -662,7 +662,9 @@ where
                     Constraint::Length(11), // a1
                     Constraint::Length(11), // a2
                 ],
-                vec!["#", "Type", "Freq", "Gain", "Q", "b0", "b1", "b2", "a1", "a2"],
+                vec![
+                    "#", "Type", "Freq", "Gain", "Q", "b0", "b1", "b2", "a1", "a2",
+                ],
                 "EQ Bands (Expert Mode)",
             ),
         };

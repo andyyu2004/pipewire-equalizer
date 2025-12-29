@@ -165,7 +165,7 @@ impl EqState {
             .map(|(idx, band)| apo::Filter {
                 number: (idx + 1) as u32,
                 enabled: !band.muted,
-                filter_type: todo!(),
+                filter_type: band.filter_type,
                 freq: band.frequency as f32,
                 gain: band.gain as f32,
                 q: band.q as f32,

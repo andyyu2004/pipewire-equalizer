@@ -27,30 +27,20 @@ pub struct Module {
 }
 
 impl Module {
-    pub fn from_apo(name: &str, apo: &apo::Config) -> Self {
-        let nodes: Vec<Node> = apo
-            .filters
-            .iter()
-            .map(|filter| Node {
+    pub fn from_kinds(name: &str, kinds: impl IntoIterator<Item = NodeKind>) -> Self {
+        let nodes: Vec<Node> = kinds
+            .into_iter()
+            .enumerate()
+            .map(|(i, kind)| Node {
                 node_type: NodeType::Builtin,
-                name: format!("{FILTER_PREFIX}{}", filter.number),
-                filter: filter.filter_type.into(),
-                control: Control {
-                    freq: filter.freq,
-                    q: filter.q,
-                    gain: filter.gain,
-                },
+                name: format!("{FILTER_PREFIX}{}", i + 1),
+                kind,
             })
             .collect();
-
-        let links: Vec<Link> = (0..apo.filters.len().saturating_sub(1))
-            .map(|i| {
-                let curr = &apo.filters[i];
-                let next = &apo.filters[i + 1];
-                Link {
-                    output: format!("{FILTER_PREFIX}{}:Out", curr.number),
-                    input: format!("{FILTER_PREFIX}{}:In", next.number),
-                }
+        let links: Vec<Link> = (0..nodes.len().saturating_sub(1))
+            .map(|i| Link {
+                output: format!("{}:Out", nodes[i].name),
+                input: format!("{}:In", nodes[i + 1].name),
             })
             .collect();
 
@@ -77,6 +67,23 @@ impl Module {
                 },
             },
         }
+    }
+
+    pub fn from_apo(name: &str, apo: &apo::Config) -> Self {
+        let kinds = apo.filters.iter().map(|filter| {
+            let control = Control {
+                freq: filter.freq,
+                q: filter.q,
+                gain: filter.gain,
+            };
+            match filter.filter_type {
+                apo::FilterType::Peaking => NodeKind::Peaking { control },
+                apo::FilterType::LowShelf => NodeKind::LowShelf { control },
+                apo::FilterType::HighShelf => NodeKind::HighShelf { control },
+            }
+        });
+
+        Self::from_kinds(name, kinds)
     }
 }
 
@@ -148,9 +155,51 @@ pub struct Node {
     #[serde(rename = "type")]
     pub node_type: NodeType,
     pub name: String,
-    #[serde(rename = "label")]
-    pub filter: FilterType,
-    pub control: Control,
+    #[serde(flatten)]
+    pub kind: NodeKind,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "label")]
+pub enum NodeKind {
+    #[serde(rename = "bq_peaking")]
+    Peaking {
+        control: Control,
+    },
+    #[serde(rename = "bq_lowshelf")]
+    LowShelf {
+        control: Control,
+    },
+    #[serde(rename = "bq_highshelf")]
+    HighShelf {
+        control: Control,
+    },
+    Raw {
+        config: RawConfig,
+    },
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RawConfig {
+    coefficients: RateAndBiquadCoefficients,
+}
+
+/// Sample rate mapped to biquad coefficients
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RateAndBiquadCoefficients {
+    rate: f32,
+    #[serde(flatten)]
+    coefficients: BiquadCoefficients,
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct BiquadCoefficients {
+    pub b0: f32,
+    pub b1: f32,
+    pub b2: f32,
+    pub a0: f32,
+    pub a1: f32,
+    pub a2: f32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -258,7 +307,7 @@ mod tests {
     use super::Config;
 
     #[test]
-    fn test_generate_config() {
+    fn test_generate_config_from_apo() {
         let config = apo::Config {
             preamp: Some(-1.9),
             filters: vec![

@@ -163,20 +163,28 @@ pub struct Node {
 #[serde(tag = "label")]
 pub enum NodeKind {
     #[serde(rename = "bq_peaking")]
-    Peaking {
-        control: Control,
-    },
+    Peaking { control: Control },
     #[serde(rename = "bq_lowshelf")]
-    LowShelf {
-        control: Control,
-    },
+    LowShelf { control: Control },
     #[serde(rename = "bq_highshelf")]
-    HighShelf {
-        control: Control,
-    },
-    Raw {
-        config: RawConfig,
-    },
+    HighShelf { control: Control },
+    #[serde(rename = "bq_raw")]
+    Raw { config: RawConfig },
+    #[serde(rename = "param_eq")]
+    ParamEq { config: ParamEqConfig },
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ParamEqConfig {
+    filters: Vec<ParamEqFilter>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ParamEqFilter {
+    #[serde(rename = "type")]
+    ty: FilterType,
+    #[serde(flatten)]
+    control: Control,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

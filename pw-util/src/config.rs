@@ -13,9 +13,9 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_kinds(name: &str, kinds: impl IntoIterator<Item = NodeKind>) -> Self {
+    pub fn from_kinds(name: &str, preamp: f64, kinds: impl IntoIterator<Item = NodeKind>) -> Self {
         Config {
-            context_modules: vec![Module::from_kinds(name, kinds)],
+            context_modules: vec![Module::from_kinds(name, preamp, kinds)],
         }
     }
 
@@ -33,15 +33,27 @@ pub struct Module {
 }
 
 impl Module {
-    pub fn from_kinds(name: &str, kinds: impl IntoIterator<Item = NodeKind>) -> Self {
-        let nodes: Vec<Node> = kinds
+    pub fn from_kinds(name: &str, preamp: f64, kinds: impl IntoIterator<Item = NodeKind>) -> Self {
+        let preamp_node = (preamp != 0.0).then(|| Node {
+            node_type: NodeType::Builtin,
+            name: format!("{FILTER_PREFIX}_preamp"),
+            kind: NodeKind::HighShelf {
+                control: Control {
+                    // pipewire biquad high-shelf has a special case for freq=0 that applies gain uniformly
+                    freq: 0.0,
+                    q: 0.0,
+                    gain: preamp,
+                },
+            },
+        });
+
+        let nodes: Vec<Node> = preamp_node
             .into_iter()
-            .enumerate()
-            .map(|(i, kind)| Node {
+            .chain(kinds.into_iter().enumerate().map(|(i, kind)| Node {
                 node_type: NodeType::Builtin,
                 name: format!("{FILTER_PREFIX}{}", i + 1),
                 kind,
-            })
+            }))
             .collect();
         let links: Vec<Link> = (0..nodes.len().saturating_sub(1))
             .map(|i| Link {
@@ -89,7 +101,7 @@ impl Module {
             }
         });
 
-        Self::from_kinds(name, kinds)
+        Self::from_kinds(name, apo.preamp, kinds)
     }
 }
 
@@ -246,15 +258,15 @@ impl From<apo::FilterType> for FilterType {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Control {
-    freq: f64,
-    q: f64,
-    gain: f64,
+    pub freq: f64,
+    pub q: f64,
+    pub gain: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Link {
-    output: String,
-    input: String,
+    pub output: String,
+    pub input: String,
 }
 
 /// Wrapper around serde_json::Value that formats as SPA JSON (PipeWire config format)
@@ -326,6 +338,7 @@ mod tests {
     fn test_generate_config_from_raw() {
         let out = to_spa_json(&Config::from_kinds(
             "test-eq",
+            0.0,
             [NodeKind::Raw {
                 config: RawNodeConfig {
                     coefficients: vec![RateAndBiquadCoefficients {
@@ -395,7 +408,7 @@ mod tests {
     #[test]
     fn test_generate_config_from_apo() {
         let config = apo::Config {
-            preamp: Some(-1.9),
+            preamp: -1.9,
             filters: vec![
                 apo::Filter {
                     number: 1,
@@ -430,6 +443,16 @@ mod tests {
                                 nodes = [
                                     {
                                         type = "builtin"
+                                        name = "pweq.filter_preamp"
+                                        label = "bq_highshelf"
+                                        control = {
+                                            Freq = 0.0
+                                            Q = 0.0
+                                            Gain = -1.9
+                                        }
+                                    }
+                                    {
+                                        type = "builtin"
                                         name = "pweq.filter1"
                                         label = "bq_peaking"
                                         control = {
@@ -450,6 +473,10 @@ mod tests {
                                     }
                                 ]
                                 links = [
+                                    {
+                                        output = "pweq.filter_preamp:Out"
+                                        input = "pweq.filter1:In"
+                                    }
                                     {
                                         output = "pweq.filter1:Out"
                                         input = "pweq.filter2:In"

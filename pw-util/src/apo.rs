@@ -21,7 +21,7 @@ pub struct Filter {
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub preamp: Option<f64>,
+    pub preamp: f64,
     pub filters: Vec<Filter>,
 }
 
@@ -36,7 +36,7 @@ pub async fn parse_file(path: impl AsRef<Path>) -> Result<Config> {
 
 /// Parse AutoEQ .apo format from a string
 pub fn parse(content: &str) -> Result<Config> {
-    let mut preamp = None;
+    let mut preamp = 0.0;
     let mut filters = Vec::new();
 
     for line in content.lines() {
@@ -54,11 +54,9 @@ pub fn parse(content: &str) -> Result<Config> {
                     .trim_end_matches("dB")
                     .trim_end_matches("db")
                     .trim();
-                preamp = Some(
-                    value_str
-                        .parse()
-                        .context(format!("Invalid preamp value: {}", value_str))?,
-                );
+                preamp = value_str
+                    .parse()
+                    .context(format!("Invalid preamp value: {}", value_str))?;
             }
             continue;
         }

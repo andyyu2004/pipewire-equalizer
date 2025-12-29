@@ -20,6 +20,7 @@ use ratatui::{
     prelude::{Backend, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     symbols::Marker,
+    text::{Line, Span},
     widgets::{Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table},
 };
 use tokio::sync::mpsc;
@@ -45,13 +46,20 @@ struct EqState {
     selected_band: usize,
     max_bands: usize,
     view_mode: ViewMode,
+    preamp: f64, // dB
 }
 
 impl EqState {
     fn with_filters(name: String, filters: impl IntoIterator<Item = Filter>) -> Self {
+        let filters = filters.into_iter().collect::<Vec<_>>();
         Self {
             name,
-            filters: filters.into_iter().collect(),
+            // Set initial preamp to max gain among bands to avoid clipping
+            preamp: -filters
+                .iter()
+                .fold(0.0f64, |acc, band| acc.max(band.gain))
+                .max(0.0),
+            filters,
             selected_band: 0,
             max_bands: 20,
             view_mode: ViewMode::Normal,
@@ -158,7 +166,7 @@ impl EqState {
 
     fn adjust_q(&mut self, f: impl FnOnce(f64) -> f64) {
         if let Some(band) = self.filters.get_mut(self.selected_band) {
-            band.q = f(band.q).clamp(0.1, 10.0);
+            band.q = f(band.q).clamp(0.001, 10.0);
         }
     }
 
@@ -192,9 +200,14 @@ impl EqState {
         };
     }
 
+    fn adjust_preamp(&mut self, f: impl FnOnce(f64) -> f64) {
+        self.preamp = f(self.preamp).clamp(-12.0, 12.0);
+    }
+
     fn to_module_args(&self, rate: u32) -> ModuleArgs {
         Module::from_kinds(
             &format!("{}-{}", self.name, self.filters.len()),
+            self.preamp,
             self.filters.iter().map(|band| NodeKind::Raw {
                 config: RawNodeConfig {
                     coefficients: vec![RateAndBiquadCoefficients {
@@ -384,6 +397,7 @@ where
 
         let before_idx = self.eq_state.selected_band;
         let before_band = self.eq_state.filters[self.eq_state.selected_band];
+        let before_preamp = self.eq_state.preamp;
 
         match key.code {
             KeyCode::Esc => return Ok(ControlFlow::Break(())),
@@ -412,6 +426,10 @@ where
             // Q adjustment
             KeyCode::Char('q') => self.eq_state.adjust_q(|q| q + 0.01),
             KeyCode::Char('Q') => self.eq_state.adjust_q(|q| q - 0.01),
+
+            // Preamp adjustment
+            KeyCode::Char('p') => self.eq_state.adjust_preamp(|p| p + 0.1),
+            KeyCode::Char('P') => self.eq_state.adjust_preamp(|p| p - 0.1),
 
             // Filter type
             KeyCode::Char('t') => self.eq_state.cycle_filter_type(Rotation::Clockwise),
@@ -446,6 +464,7 @@ where
 
         if let Some(node_id) = self.active_node_id
             && self.eq_state.selected_band == before_idx
+            && self.eq_state.preamp != before_preamp
             && self.eq_state.filters[self.eq_state.selected_band] != before_band
         {
             let band_idx = NonZero::new(self.eq_state.selected_band + 1).unwrap();
@@ -486,13 +505,27 @@ where
                 .split(f.area());
 
             // Header
-            let header = Paragraph::new(format!(
-                "PipeWire EQ: {} | Bands: {}/{} | Sample Rate: {:.0} Hz",
-                eq_state.name,
-                eq_state.filters.len(),
-                eq_state.max_bands,
-                sample_rate
-            ))
+            let preamp_color = if eq_state.preamp > 0.05 {
+                Color::Green
+            } else if eq_state.preamp < -0.05 {
+                Color::Red
+            } else {
+                Color::Gray
+            };
+
+            let header = Paragraph::new(Line::from(vec![
+                Span::raw(format!(
+                    "PipeWire EQ: {} | Bands: {}/{} | Sample Rate: {:.0} Hz | Preamp: ",
+                    eq_state.name,
+                    eq_state.filters.len(),
+                    eq_state.max_bands,
+                    sample_rate
+                )),
+                Span::styled(
+                    format!("{:+.1} dB", eq_state.preamp),
+                    Style::default().fg(preamp_color),
+                ),
+            ]))
             .block(Block::default().borders(Borders::ALL));
             f.render_widget(header, chunks[0]);
 
@@ -504,7 +537,7 @@ where
 
             // Footer/Help
             let help = Paragraph::new(
-                "Tab/j/k: select | t: type | m: mute | e: expert | f/F: freq | g/G: gain | q/Q: Q | a: add | d: delete | 0: zero | Esc/C-c: quit"
+                "Tab/j/k: select | t: type | m: mute | e: expert | f/F: freq | g/G: gain | q/Q: Q | p/P: preamp | a: add | d: delete | 0: zero | Esc/C-c: quit"
             )
             .block(Block::default().borders(Borders::ALL));
             f.render_widget(help, chunks[3]);

@@ -14,14 +14,14 @@ pub struct Filter {
     pub number: u32,
     pub enabled: bool,
     pub filter_type: FilterType,
-    pub freq: f32,
-    pub gain: f32,
-    pub q: f32,
+    pub frequency: f64,
+    pub gain: f64,
+    pub q: f64,
 }
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub preamp: Option<f32>,
+    pub preamp: Option<f64>,
     pub filters: Vec<Filter>,
 }
 
@@ -151,7 +151,7 @@ fn parse_filter_line(line: &str) -> Result<Option<Filter>> {
         number,
         enabled,
         filter_type,
-        freq,
+        frequency: freq,
         gain,
         q,
     }))
@@ -172,7 +172,7 @@ mod tests {
                 number: 1,
                 enabled: true,
                 filter_type: FilterType::Peaking,
-                freq: 46.0,
+                frequency: 46.0,
                 gain: 0.8,
                 q: 2.9,
             }
@@ -190,7 +190,7 @@ mod tests {
                 number: 3,
                 enabled: true,
                 filter_type: FilterType::LowShelf,
-                freq: 105.0,
+                frequency: 105.0,
                 gain: -0.3,
                 q: 0.6666667,
             }

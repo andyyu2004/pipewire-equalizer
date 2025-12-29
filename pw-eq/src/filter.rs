@@ -1,4 +1,7 @@
-use pw_util::config::{BiquadCoefficients, FilterType};
+use pw_util::{
+    apo,
+    config::{BiquadCoefficients, FilterType},
+};
 
 // EQ Band state
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -8,6 +11,18 @@ pub struct Filter {
     pub q: f64,
     pub filter_type: FilterType,
     pub muted: bool,
+}
+
+impl From<apo::Filter> for Filter {
+    fn from(f: apo::Filter) -> Self {
+        Self {
+            frequency: f.frequency,
+            gain: f.gain,
+            q: f.q,
+            filter_type: f.filter_type.into(),
+            muted: !f.enabled,
+        }
+    }
 }
 
 impl Default for Filter {

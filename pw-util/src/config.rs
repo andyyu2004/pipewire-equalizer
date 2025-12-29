@@ -78,7 +78,7 @@ impl Module {
     pub fn from_apo(name: &str, apo: &apo::Config) -> Self {
         let kinds = apo.filters.iter().map(|filter| {
             let control = Control {
-                freq: filter.freq,
+                freq: filter.frequency,
                 q: filter.q,
                 gain: filter.gain,
             };
@@ -246,9 +246,9 @@ impl From<apo::FilterType> for FilterType {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Control {
-    freq: f32,
-    q: f32,
-    gain: f32,
+    freq: f64,
+    q: f64,
+    gain: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -401,7 +401,7 @@ mod tests {
                     number: 1,
                     enabled: true,
                     filter_type: FilterType::Peaking,
-                    freq: 46.0,
+                    frequency: 46.0,
                     gain: 0.8,
                     q: 2.9,
                 },
@@ -409,7 +409,7 @@ mod tests {
                     number: 2,
                     enabled: true,
                     filter_type: FilterType::LowShelf,
-                    freq: 105.0,
+                    frequency: 105.0,
                     gain: -0.3,
                     q: 0.667,
                 },
@@ -434,8 +434,8 @@ mod tests {
                                         label = "bq_peaking"
                                         control = {
                                             Freq = 46.0
-                                            Q = 2.9000000953674316
-                                            Gain = 0.800000011920929
+                                            Q = 2.9
+                                            Gain = 0.8
                                         }
                                     }
                                     {
@@ -444,8 +444,8 @@ mod tests {
                                         label = "bq_lowshelf"
                                         control = {
                                             Freq = 105.0
-                                            Q = 0.6669999957084656
-                                            Gain = -0.30000001192092896
+                                            Q = 0.667
+                                            Gain = -0.3
                                         }
                                     }
                                 ]

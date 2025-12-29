@@ -1,7 +1,13 @@
 use anyhow::Context as _;
 use clap::Parser;
+use crossterm::event::EventStream;
+use pw_eq::filter::Filter;
+use pw_eq::tui::App;
 use pw_eq::{find_eq_node, use_eq};
 use pw_util::config::FILTER_PREFIX;
+use ratatui::Terminal;
+use ratatui::prelude::CrosstermBackend;
+use std::backtrace::Backtrace;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::num::NonZero;
@@ -83,6 +89,14 @@ struct Use {
 }
 
 #[derive(Parser)]
+struct Tui {
+    /// Load a specific EQ profile on startup
+    /// Currently supports .apo files only
+    #[arg(short, long)]
+    load: Option<PathBuf>,
+}
+
+#[derive(Parser)]
 enum Cmd {
     Create(Create),
     /// List available EQ filters
@@ -93,7 +107,7 @@ enum Cmd {
     Set(Set),
     Use(Use),
     /// Interactive TUI mode
-    Tui,
+    Tui(Tui),
 }
 
 #[tokio::main]
@@ -130,10 +144,34 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Use(use_cmd) => {
             use_eq(&use_cmd.profile).await?;
         }
-        Cmd::Tui => pw_eq::tui::run().await?,
+        Cmd::Tui(tui) => run_tui(tui).await?,
     }
 
     Ok(())
+}
+
+async fn run_tui(tui: Tui) -> anyhow::Result<()> {
+    let (panic_tx, panic_rx) = std::sync::mpsc::sync_channel(1);
+    std::panic::set_hook(Box::new(move |info| {
+        let backtrace = Backtrace::capture();
+        let _ = panic_tx.send((info.to_string(), backtrace));
+    }));
+
+    let filters = if let Some(apo_path) = tui.load {
+        let apo_config = pw_util::apo::parse_file(apo_path).await?;
+        // TODO preamp ignored
+        apo_config.filters.into_iter().map(Filter::from).collect()
+    } else {
+        vec![]
+    };
+
+    let term = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
+    let mut app = App::new(term, filters, panic_rx)?;
+    app.enter()?;
+
+    let events = EventStream::new();
+
+    app.run(events).await
 }
 
 async fn create_eq(

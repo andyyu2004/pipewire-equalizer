@@ -5,7 +5,7 @@ use std::{
 };
 
 use crossterm::{
-    event::{DisableMouseCapture, Event, EventStream, KeyCode, KeyEvent, KeyModifiers},
+    event::{DisableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{self, EnterAlternateScreen},
 };
@@ -17,7 +17,7 @@ use pw_util::{
 use ratatui::{
     Terminal,
     layout::Direction,
-    prelude::{Backend, Constraint, CrosstermBackend, Layout, Rect},
+    prelude::{Backend, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     symbols::Marker,
     widgets::{Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table},
@@ -48,10 +48,20 @@ struct EqState {
 }
 
 impl EqState {
-    fn new(name: String) -> Self {
+    fn with_filters(name: String, filters: impl IntoIterator<Item = Filter>) -> Self {
         Self {
             name,
-            filters: vec![
+            filters: filters.into_iter().collect(),
+            selected_band: 0,
+            max_bands: 20,
+            view_mode: ViewMode::Normal,
+        }
+    }
+
+    fn new(name: String) -> Self {
+        Self::with_filters(
+            name,
+            [
                 Filter {
                     frequency: 50.0,
                     filter_type: FilterType::LowShelf,
@@ -83,10 +93,7 @@ impl EqState {
                     ..Default::default()
                 },
             ],
-            selected_band: 0,
-            max_bands: 20,
-            view_mode: ViewMode::Normal,
-        }
+        )
     }
 
     fn add_band(&mut self) {
@@ -226,22 +233,6 @@ impl EqState {
     }
 }
 
-pub async fn run() -> anyhow::Result<()> {
-    let (panic_tx, panic_rx) = std::sync::mpsc::sync_channel(1);
-    std::panic::set_hook(Box::new(move |info| {
-        let backtrace = Backtrace::capture();
-        let _ = panic_tx.send((info.to_string(), backtrace));
-    }));
-
-    let term = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
-    let mut app = App::new(term, panic_rx)?;
-    app.enter()?;
-
-    let events = EventStream::new();
-
-    app.run(events).await
-}
-
 pub enum Notif {
     ModuleLoaded {
         id: u32,
@@ -268,17 +259,28 @@ where
     B: Backend + io::Write,
     B::Error: Send + Sync + 'static,
 {
-    pub fn new(term: Terminal<B>, panic_rx: Receiver<(String, Backtrace)>) -> io::Result<Self> {
+    pub fn new(
+        term: Terminal<B>,
+        filters: impl IntoIterator<Item = Filter>,
+        panic_rx: Receiver<(String, Backtrace)>,
+    ) -> io::Result<Self> {
         let (pw_tx, rx) = pipewire::channel::channel();
         let (notifs_tx, notifs) = mpsc::channel(100);
         let pw_handle = std::thread::spawn(|| pw_thread(notifs_tx, rx));
+
+        let filters = filters.into_iter().collect::<Vec<_>>();
+        let eq_state = if !filters.is_empty() {
+            EqState::with_filters("pweq".to_string(), filters)
+        } else {
+            EqState::new("pweq".to_string())
+        };
 
         Ok(Self {
             term,
             panic_rx,
             pw_tx,
             notifs,
-            eq_state: EqState::new("pweq".to_string()),
+            eq_state,
             active_node_id: None,
             original_default_sink: None,
             pw_handle: Some(pw_handle),

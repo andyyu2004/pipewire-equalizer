@@ -1,4 +1,4 @@
-mod filter;
+pub mod filter;
 mod pw;
 pub mod tui;
 

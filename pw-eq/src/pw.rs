@@ -34,15 +34,15 @@ pub fn pw_thread(
             Message::Terminate => mainloop.quit(),
             Message::LoadModule { name, args } => {
                 // FIXME this count isn't necessary accurate if we use the param_eq config
-                let filter_count = args.filter_graph.nodes.len();
+                let band_count = args.filter_graph.nodes.len();
                 let spa_json_args = pw_util::to_spa_json(&args);
 
                 let mut modules = modules.lock().unwrap();
 
-                let module = match modules.entry(filter_count) {
-                    Entry::Occupied(entry) => entry.into_mut(),
+                let (module, reused) = match modules.entry(band_count) {
+                    Entry::Occupied(entry) => (entry.into_mut(), true),
                     Entry::Vacant(entry) => {
-                        tracing::info!(filter_count, "Loading new module for band count");
+                        tracing::info!(band_count, "Loading new module for band count");
                         let module = match api::load_module(&context, &name, &spa_json_args) {
                             Ok(module) => module,
                             Err(err) => {
@@ -51,7 +51,7 @@ pub fn pw_thread(
                             }
                         };
 
-                        entry.insert(module)
+                        (entry.insert(module), false)
                     }
                 };
 
@@ -61,6 +61,7 @@ pub fn pw_thread(
                     id: info.id(),
                     name: info.name().to_string(),
                     media_name: args.media_name.clone(),
+                    reused,
                 });
             }
         }

@@ -276,8 +276,7 @@ impl EqState {
         self.apply_updates(node_id, [(band_id, update)]);
     }
 
-    /// Sync all filters when bypass state changes
-    fn sync_bypass(&self, node_id: u32, sample_rate: u32) {
+    fn sync(&self, node_id: u32, sample_rate: u32) {
         let mut updates = Vec::with_capacity(self.filters.len() + 1);
 
         updates.push((FilterId::Preamp, self.build_preamp_update()));
@@ -321,6 +320,7 @@ pub enum Notif {
         id: u32,
         name: String,
         media_name: String,
+        reused: bool,
     },
     Error(anyhow::Error),
 }
@@ -394,6 +394,13 @@ where
             })
             .ok();
 
+        // Autoload the EQ module
+        tracing::info!("Loading PipeWire EQ module");
+        let _ = self.pw_tx.send(pw::Message::LoadModule {
+            name: "libpipewire-module-filter-chain".into(),
+            args: Box::new(self.eq_state.to_module_args(self.sample_rate)),
+        });
+
         let mut events = pin!(events.fuse());
 
         loop {
@@ -439,13 +446,20 @@ where
                 id,
                 name,
                 media_name,
+                reused,
             } => {
                 tracing::info!(id, name, media_name, "module loaded");
+
                 let Ok(node_id) = use_eq(&media_name).await.inspect_err(|err| {
                     tracing::error!(error = %err, "failed to use EQ");
                 }) else {
                     return;
                 };
+
+                if reused {
+                    // If the module was reused, it may have stale filter settings
+                    self.eq_state.sync(node_id, self.sample_rate);
+                }
 
                 self.active_node_id = Some(node_id);
             }
@@ -469,6 +483,7 @@ where
         let before_band = self.eq_state.filters[self.eq_state.selected_band];
         let before_preamp = self.eq_state.preamp;
         let before_bypass = self.eq_state.bypassed;
+        let before_filter_count = self.eq_state.filters.len();
 
         match key.code {
             KeyCode::Esc => return Ok(ControlFlow::Break(())),
@@ -525,14 +540,6 @@ where
                 }
             }
 
-            KeyCode::Char('l') => {
-                tracing::info!("Loading PipeWire EQ module");
-                let _ = self.pw_tx.send(pw::Message::LoadModule {
-                    name: "libpipewire-module-filter-chain".into(),
-                    args: Box::new(self.eq_state.to_module_args(self.sample_rate)),
-                });
-            }
-
             _ => {}
         }
 
@@ -542,7 +549,6 @@ where
             self.eq_state.sync_preamp(node_id);
         }
 
-        // Sync filter changes
         if let Some(node_id) = self.active_node_id
             && self.eq_state.selected_band == before_idx
             && self.eq_state.filters[self.eq_state.selected_band] != before_band
@@ -554,7 +560,21 @@ where
         if let Some(node_id) = self.active_node_id
             && before_bypass != self.eq_state.bypassed
         {
-            self.eq_state.sync_bypass(node_id, self.sample_rate);
+            // If bypass state changed, sync all bands
+            self.eq_state.sync(node_id, self.sample_rate);
+        }
+
+        // Reload module if filter count changed (add/delete band)
+        if before_filter_count != self.eq_state.filters.len() {
+            tracing::debug!(
+                old_count = before_filter_count,
+                new_count = self.eq_state.filters.len(),
+                "Filter count changed, loading new module"
+            );
+            let _ = self.pw_tx.send(pw::Message::LoadModule {
+                name: "libpipewire-module-filter-chain".into(),
+                args: Box::new(self.eq_state.to_module_args(self.sample_rate)),
+            });
         }
 
         Ok(ControlFlow::Continue(()))

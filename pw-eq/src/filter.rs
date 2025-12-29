@@ -38,6 +38,9 @@ impl Filter {
         let gain = if self.muted { 0.0 } else { self.gain };
         let a = 10_f64.powf(gain / 40.0); // dB to amplitude
 
+        // These are not identical to pipewire's implementation, but the results are very close.
+        // Can copy their implementation directly if exact match is needed.
+        // pipewire/spa/plugins/audioconvert/biquad.c
         let (b0, b1, b2, a0, a1, a2) = match self.filter_type {
             FilterType::Peaking => {
                 let b0 = 1.0 + alpha * a;

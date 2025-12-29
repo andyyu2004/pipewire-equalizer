@@ -47,6 +47,7 @@ struct EqState {
     max_bands: usize,
     view_mode: ViewMode,
     preamp: f64, // dB
+    bypassed: bool,
 }
 
 impl EqState {
@@ -63,6 +64,7 @@ impl EqState {
             selected_band: 0,
             max_bands: 20,
             view_mode: ViewMode::Normal,
+            bypassed: false,
         }
     }
 
@@ -204,6 +206,10 @@ impl EqState {
         self.preamp = f(self.preamp).clamp(-12.0, 12.0);
     }
 
+    fn toggle_bypass(&mut self) {
+        self.bypassed = !self.bypassed;
+    }
+
     fn to_module_args(&self, rate: u32) -> ModuleArgs {
         Module::from_kinds(
             &format!("{}-{}", self.name, self.filters.len()),
@@ -218,6 +224,58 @@ impl EqState {
             }),
         )
         .args
+    }
+
+    /// Sync preamp gain to PipeWire
+    fn sync_preamp(&self, node_id: u32) {
+        // Still apply preamp even when bypassed. This tends to give a more balanced volume for A/B
+        let update = UpdateFilter {
+            frequency: None,
+            gain: Some(self.preamp),
+            q: None,
+            coeffs: None,
+        };
+
+        tokio::spawn(async move {
+            if let Err(err) = update_filter(node_id, BandId::Preamp, update).await {
+                tracing::error!(error = %err, "failed to update preamp");
+            }
+        });
+    }
+
+    /// Sync a specific filter band to PipeWire
+    fn sync_filter(&self, node_id: u32, band_idx: usize, sample_rate: u32) {
+        let band = &self.filters[band_idx];
+        let band_id = NonZero::new(band_idx + 1).unwrap();
+
+        let gain = if self.bypassed || band.muted {
+            0.0
+        } else {
+            band.gain
+        };
+
+        let coeffs = band.biquad_coeffs(sample_rate as f64);
+        let update = UpdateFilter {
+            frequency: Some(band.frequency),
+            gain: Some(gain),
+            q: Some(band.q),
+            coeffs: Some(coeffs),
+        };
+
+        tokio::spawn(async move {
+            if let Err(err) = update_filter(node_id, BandId::Index(band_id), update).await {
+                tracing::error!(error = %err, band_idx, "failed to update band");
+            }
+        });
+    }
+
+    /// Sync all filters when bypass state changes
+    fn sync_bypass(&self, node_id: u32, sample_rate: u32) {
+        self.sync_preamp(node_id);
+
+        for idx in 0..self.filters.len() {
+            self.sync_filter(node_id, idx, sample_rate);
+        }
     }
 
     /// Generate frequency response curve data for visualization
@@ -398,6 +456,7 @@ where
         let before_idx = self.eq_state.selected_band;
         let before_band = self.eq_state.filters[self.eq_state.selected_band];
         let before_preamp = self.eq_state.preamp;
+        let before_bypass = self.eq_state.bypassed;
 
         match key.code {
             KeyCode::Esc => return Ok(ControlFlow::Break(())),
@@ -441,6 +500,9 @@ where
             // View mode
             KeyCode::Char('e') => self.eq_state.toggle_view_mode(),
 
+            // Bypass
+            KeyCode::Char('b') => self.eq_state.toggle_bypass(),
+
             // Band management
             KeyCode::Char('a') => self.eq_state.add_band(),
             KeyCode::Char('d') => self.eq_state.delete_selected_band(),
@@ -465,43 +527,22 @@ where
         if let Some(node_id) = self.active_node_id
             && before_preamp != self.eq_state.preamp
         {
-            let update = UpdateFilter {
-                frequency: None,
-                gain: Some(self.eq_state.preamp),
-                q: None,
-                coeffs: None,
-            };
-
-            tokio::spawn(async move {
-                if let Err(err) = update_filter(node_id, BandId::Preamp, update).await {
-                    tracing::error!(error = %err, "failed to update preamp");
-                }
-            });
+            self.eq_state.sync_preamp(node_id);
         }
 
+        // Sync filter changes
         if let Some(node_id) = self.active_node_id
             && self.eq_state.selected_band == before_idx
             && self.eq_state.filters[self.eq_state.selected_band] != before_band
         {
-            // +1 to convert 0-based to 1-based index (not due to preamp), maybe we should just zero index all
-            let band_idx = NonZero::new(self.eq_state.selected_band + 1).unwrap();
-            let band = &self.eq_state.filters[self.eq_state.selected_band];
+            self.eq_state
+                .sync_filter(node_id, self.eq_state.selected_band, self.sample_rate);
+        }
 
-            // Always send both params and coefficients. This is a bit weird but seems to be
-            // necessary to get the changes to apply correctly in all cases.
-            let coeffs = band.biquad_coeffs(self.sample_rate as f64);
-            let update = UpdateFilter {
-                frequency: Some(band.frequency),
-                gain: Some(if band.muted { 0.0 } else { band.gain }),
-                q: Some(band.q),
-                coeffs: Some(coeffs),
-            };
-
-            tokio::spawn(async move {
-                if let Err(err) = update_filter(node_id, BandId::Index(band_idx), update).await {
-                    tracing::error!(error = %err, "failed to update band");
-                }
-            });
+        if let Some(node_id) = self.active_node_id
+            && before_bypass != self.eq_state.bypassed
+        {
+            self.eq_state.sync_bypass(node_id, self.sample_rate);
         }
 
         Ok(ControlFlow::Continue(()))
@@ -530,7 +571,7 @@ where
                 Color::Gray
             };
 
-            let header = Paragraph::new(Line::from(vec![
+            let mut header_spans = vec![
                 Span::raw(format!(
                     "PipeWire EQ: {} | Bands: {}/{} | Sample Rate: {:.0} Hz | Preamp: ",
                     eq_state.name,
@@ -542,8 +583,17 @@ where
                     format!("{:+.1} dB", eq_state.preamp),
                     Style::default().fg(preamp_color),
                 ),
-            ]))
-            .block(Block::default().borders(Borders::ALL));
+            ];
+
+            if eq_state.bypassed {
+                header_spans.push(Span::styled(
+                    " | BYPASSED",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ));
+            }
+
+            let header = Paragraph::new(Line::from(header_spans))
+                .block(Block::default().borders(Borders::ALL));
             f.render_widget(header, chunks[0]);
 
             // Band table
@@ -554,7 +604,7 @@ where
 
             // Footer/Help
             let help = Paragraph::new(
-                "Tab/j/k: select | t: type | m: mute | e: expert | f/F: freq | g/G: gain | q/Q: Q | p/P: preamp | a: add | d: delete | 0: zero | Esc/C-c: quit"
+                "Tab/j/k: select | t: type | m: mute | b: bypass | e: expert | f/F: freq | g/G: gain | q/Q: Q | p/P: preamp | a: add | d: delete | 0: zero | Esc/C-c: quit"
             )
             .block(Block::default().borders(Borders::ALL));
             f.render_widget(help, chunks[3]);

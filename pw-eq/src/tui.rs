@@ -16,7 +16,8 @@ use pw_util::{
 };
 use ratatui::{
     Terminal,
-    prelude::{Backend, Constraint, CrosstermBackend, Direction, Layout, Rect},
+    layout::Direction,
+    prelude::{Backend, Constraint, CrosstermBackend, Layout, Rect},
     style::{Color, Modifier, Style},
     symbols::Marker,
     widgets::{Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table},
@@ -24,6 +25,12 @@ use ratatui::{
 use tokio::sync::mpsc;
 
 use crate::pw::{self, pw_thread};
+
+#[derive(Clone, Copy)]
+enum Rotation {
+    Clockwise,
+    CounterClockwise,
+}
 
 // EQ state
 struct EqState {
@@ -140,12 +147,19 @@ impl EqState {
         }
     }
 
-    fn cycle_filter_type(&mut self) {
+    fn cycle_filter_type(&mut self, rotation: Rotation) {
         if let Some(band) = self.filters.get_mut(self.selected_band) {
-            band.filter_type = match band.filter_type {
-                FilterType::Peaking => FilterType::LowShelf,
-                FilterType::LowShelf => FilterType::HighShelf,
-                FilterType::HighShelf => FilterType::Peaking,
+            band.filter_type = match rotation {
+                Rotation::Clockwise => match band.filter_type {
+                    FilterType::Peaking => FilterType::HighShelf,
+                    FilterType::LowShelf => FilterType::Peaking,
+                    FilterType::HighShelf => FilterType::LowShelf,
+                },
+                Rotation::CounterClockwise => match band.filter_type {
+                    FilterType::Peaking => FilterType::LowShelf,
+                    FilterType::LowShelf => FilterType::HighShelf,
+                    FilterType::HighShelf => FilterType::Peaking,
+                },
             };
         }
     }
@@ -355,7 +369,6 @@ where
         let before_band = self.eq_state.filters[self.eq_state.selected_band];
 
         match key.code {
-            // Quit
             KeyCode::Esc => return Ok(ControlFlow::Break(())),
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Ok(ControlFlow::Break(()));
@@ -384,7 +397,8 @@ where
             KeyCode::Char('Q') => self.eq_state.adjust_q(|q| q - 0.01),
 
             // Filter type
-            KeyCode::Char('t') => self.eq_state.cycle_filter_type(),
+            KeyCode::Char('t') => self.eq_state.cycle_filter_type(Rotation::Clockwise),
+            KeyCode::Char('T') => self.eq_state.cycle_filter_type(Rotation::CounterClockwise),
 
             // Mute
             KeyCode::Char('m') => self.eq_state.toggle_mute(),

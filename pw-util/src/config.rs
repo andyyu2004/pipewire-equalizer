@@ -225,10 +225,10 @@ pub enum NodeType {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FilterType {
-    #[serde(rename = "bq_peaking")]
-    Peaking,
     #[serde(rename = "bq_lowshelf")]
     LowShelf,
+    #[serde(rename = "bq_peaking")]
+    Peaking,
     #[serde(rename = "bq_highshelf")]
     HighShelf,
 }

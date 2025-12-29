@@ -202,7 +202,7 @@ pub struct RawNodeConfig {
 /// Sample rate mapped to biquad coefficients
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RateAndBiquadCoefficients {
-    pub rate: f64,
+    pub rate: u32,
     #[serde(flatten)]
     pub coefficients: BiquadCoefficients,
 }
@@ -329,7 +329,7 @@ mod tests {
             [NodeKind::Raw {
                 config: RawNodeConfig {
                     coefficients: vec![RateAndBiquadCoefficients {
-                        rate: 48000.0,
+                        rate: 48000,
                         coefficients: BiquadCoefficients {
                             b0: 0.0,
                             b1: 0.1,
@@ -359,7 +359,7 @@ mod tests {
                                         config = {
                                             coefficients = [
                                                 {
-                                                    rate = 48000.0
+                                                    rate = 48000
                                                     b0 = 0.0
                                                     b1 = 0.1
                                                     b2 = 0.2

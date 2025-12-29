@@ -156,14 +156,14 @@ impl EqState {
         }
     }
 
-    fn to_module_args(&self, rate: f64) -> ModuleArgs {
+    fn to_module_args(&self, rate: u32) -> ModuleArgs {
         Module::from_kinds(
             &format!("{}-{}", self.name, self.filters.len()),
             self.filters.iter().map(|band| NodeKind::Raw {
                 config: RawNodeConfig {
                     coefficients: vec![RateAndBiquadCoefficients {
                         rate,
-                        coefficients: band.biquad_coeffs(rate),
+                        coefficients: band.biquad_coeffs(rate as f64),
                     }],
                 },
             }),
@@ -231,7 +231,7 @@ pub struct App<B: Backend + io::Write> {
     active_node_id: Option<u32>,
     original_default_sink: Option<u32>,
     pw_handle: Option<std::thread::JoinHandle<io::Result<()>>>,
-    sample_rate: f64,
+    sample_rate: u32,
 }
 
 impl<B> App<B>
@@ -254,7 +254,7 @@ where
             original_default_sink: None,
             pw_handle: Some(pw_handle),
             // TODO query
-            sample_rate: 48000.0,
+            sample_rate: 48000,
         })
     }
 
@@ -419,7 +419,7 @@ where
 
             // Always send both params and coefficients. This is a bit weird but seems to be
             // necessary to get the changes to apply correctly in all cases.
-            let coeffs = band.biquad_coeffs(self.sample_rate);
+            let coeffs = band.biquad_coeffs(self.sample_rate as f64);
             let update = UpdateFilter {
                 frequency: Some(band.frequency),
                 gain: Some(if band.muted { 0.0 } else { band.gain }),
@@ -617,12 +617,12 @@ where
         f: &mut ratatui::Frame,
         area: Rect,
         eq_state: &EqState,
-        sample_rate: f64,
+        sample_rate: u32,
     ) {
         const NUM_POINTS: usize = 200;
 
         // Generate frequency response curve data
-        let curve_data = eq_state.frequency_response_curve(NUM_POINTS, sample_rate);
+        let curve_data = eq_state.frequency_response_curve(NUM_POINTS, sample_rate as f64);
 
         // Convert to chart data format (log x-axis manually handled via data)
         let data: Vec<(f64, f64)> = curve_data

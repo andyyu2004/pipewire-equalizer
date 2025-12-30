@@ -547,6 +547,13 @@ where
             }
             // Toggle help
             KeyCode::Char('?') => self.show_help = !self.show_help,
+            KeyCode::Char('w') => {
+                self.input_mode = InputMode::Command;
+                self.command_buffer = format!(
+                    "write $HOME/.config/pipewire/pipewire.conf.d/{}.conf",
+                    self.eq_state.name
+                );
+            }
 
             // Navigation
             KeyCode::Tab | KeyCode::Char('j') => self.eq_state.select_next_band(),
@@ -661,7 +668,8 @@ where
     }
 
     fn execute_command(&mut self, cmd: &str) -> io::Result<ControlFlow<()>> {
-        let words = match shellish_parse::parse(cmd, true) {
+        let cmd = shellexpand::full(cmd).map_err(io::Error::other)?;
+        let words = match shellish_parse::parse(&cmd, true) {
             Ok(words) => words,
             Err(err) => {
                 self.status_error = Some(format!("command parse error: {err}"));
@@ -673,18 +681,26 @@ where
 
         match &words[..] {
             ["q" | "quit"] => return Ok(ControlFlow::Break(())),
-            ["w" | "write", path] => drop(tokio::spawn({
-                let eq_state = self.eq_state.clone();
-                let path = path.to_string();
-                async move {
-                    match eq_state.save_config(path).await {
-                        Ok(()) => tracing::info!("EQ configuration saved"),
-                        Err(err) => {
-                            tracing::error!(error = %err, "failed to save EQ configuration");
+            ["w" | "write", args @ ..] => {
+                let path = match args {
+                    [path] => path.to_string(),
+                    _ => {
+                        self.status_error = Some("usage: write <path>".to_string());
+                        return Ok(ControlFlow::Continue(()));
+                    }
+                };
+                tokio::spawn({
+                    let eq_state = self.eq_state.clone();
+                    async move {
+                        match eq_state.save_config(&path).await {
+                            Ok(()) => tracing::info!(path, "EQ configuration saved"),
+                            Err(err) => {
+                                tracing::error!(error = %err, "failed to save EQ configuration");
+                            }
                         }
                     }
-                }
-            })),
+                });
+            }
             _ => {
                 self.status_error = Some(format!("unknown command: {cmd}"));
             }

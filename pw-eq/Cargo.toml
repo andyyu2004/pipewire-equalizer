@@ -17,3 +17,4 @@ futures-util = "0.3.31"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 tracing-appender = "0.2.4"
+shellish_parse = "2.2.0"

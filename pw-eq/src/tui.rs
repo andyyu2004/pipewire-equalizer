@@ -49,6 +49,7 @@ enum InputMode {
 }
 
 // EQ state
+#[derive(Clone)]
 struct EqState {
     name: String,
     filters: Vec<Filter>,
@@ -376,6 +377,7 @@ pub struct App<B: Backend + io::Write> {
     input_mode: InputMode,
     command_buffer: String,
     show_help: bool,
+    status_error: Option<String>,
 }
 
 impl<B> App<B>
@@ -413,6 +415,7 @@ where
             input_mode: InputMode::Normal,
             command_buffer: String::new(),
             show_help: false,
+            status_error: None,
         })
     }
 
@@ -540,6 +543,7 @@ where
             KeyCode::Char(':') => {
                 self.input_mode = InputMode::Command;
                 self.command_buffer.clear();
+                self.status_error = None;
             }
             // Toggle help
             KeyCode::Char('?') => self.show_help = !self.show_help,
@@ -554,33 +558,25 @@ where
                 }
             }
 
-            // Frequency adjustment
             KeyCode::Char('f') => self.eq_state.adjust_freq(|f| f * 1.025),
             KeyCode::Char('F') => self.eq_state.adjust_freq(|f| f / 1.025),
 
-            // Gain adjustment
             KeyCode::Char('g') => self.eq_state.adjust_gain(|g| g + 0.1),
             KeyCode::Char('G') => self.eq_state.adjust_gain(|g| g - 0.1),
 
-            // Q adjustment
             KeyCode::Char('q') => self.eq_state.adjust_q(|q| q + 0.01),
             KeyCode::Char('Q') => self.eq_state.adjust_q(|q| q - 0.01),
 
-            // Preamp adjustment
             KeyCode::Char('p') => self.eq_state.adjust_preamp(|p| p + 0.1),
             KeyCode::Char('P') => self.eq_state.adjust_preamp(|p| p - 0.1),
 
-            // Filter type
             KeyCode::Char('t') => self.eq_state.cycle_filter_type(Rotation::Clockwise),
             KeyCode::Char('T') => self.eq_state.cycle_filter_type(Rotation::CounterClockwise),
 
-            // Mute
             KeyCode::Char('m') => self.eq_state.toggle_mute(),
 
-            // View mode
             KeyCode::Char('e') => self.eq_state.toggle_view_mode(),
 
-            // Bypass
             KeyCode::Char('b') => self.eq_state.toggle_bypass(),
 
             // Band management
@@ -618,7 +614,10 @@ where
         }
 
         // Reload module if filter count changed (add/delete band), or if nothing is loaded yet
-        if before_filter_count != self.eq_state.filters.len() || self.active_node_id.is_none() {
+        if before_filter_count != self.eq_state.filters.len()
+            || (self.active_node_id.is_none()
+                && self.eq_state.filters.iter().any(|f| f.gain != 0.0))
+        {
             tracing::debug!(
                 old_filter_count = before_filter_count,
                 new_filter_count = self.eq_state.filters.len(),
@@ -649,7 +648,7 @@ where
             KeyCode::Enter => {
                 let command = mem::take(&mut self.command_buffer);
                 self.enter_normal_mode();
-                self.execute_command(&command);
+                return self.execute_command(&command);
             }
             KeyCode::Backspace => {
                 self.command_buffer.pop();
@@ -661,12 +660,37 @@ where
         Ok(ControlFlow::Continue(()))
     }
 
-    fn execute_command(&mut self, command: &str) {
-        let parts: Vec<&str> = command.split_whitespace().collect();
-        if parts.is_empty() {
-            return;
+    fn execute_command(&mut self, cmd: &str) -> io::Result<ControlFlow<()>> {
+        let words = match shellish_parse::parse(cmd, true) {
+            Ok(words) => words,
+            Err(err) => {
+                self.status_error = Some(format!("command parse error: {err}"));
+                return Ok(ControlFlow::Continue(()));
+            }
+        };
+
+        let words = words.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+
+        match &words[..] {
+            ["q" | "quit"] => return Ok(ControlFlow::Break(())),
+            ["w" | "write", path] => drop(tokio::spawn({
+                let eq_state = self.eq_state.clone();
+                let path = path.to_string();
+                async move {
+                    match eq_state.save_config(path).await {
+                        Ok(()) => tracing::info!("EQ configuration saved"),
+                        Err(err) => {
+                            tracing::error!(error = %err, "failed to save EQ configuration");
+                        }
+                    }
+                }
+            })),
+            _ => {
+                self.status_error = Some(format!("unknown command: {cmd}"));
+            }
         }
-        todo!()
+
+        Ok(ControlFlow::Continue(()))
     }
 
     fn draw(&mut self) -> anyhow::Result<()> {
@@ -723,10 +747,14 @@ where
             // Frequency response chart
             Self::draw_frequency_response(f, chunks[2], eq_state, sample_rate);
 
-            // Footer: Command line or Help
+            // Footer: Status message, Command line, or Help
             let footer = match self.input_mode {
                 InputMode::Command => {
                     Paragraph::new(format!(":{}", self.command_buffer))
+                }
+                InputMode::Normal if self.status_error.is_some() => {
+                    Paragraph::new(self.status_error.as_ref().unwrap().as_str())
+                        .style(Style::default().fg(Color::Red))
                 }
                 InputMode::Normal if self.show_help => {
                     Paragraph::new(

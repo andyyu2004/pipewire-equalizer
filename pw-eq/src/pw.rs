@@ -4,7 +4,7 @@ use std::io;
 use std::sync::Mutex;
 
 use pw_util::api;
-use pw_util::config::ModuleArgs;
+use pw_util::module::ModuleArgs;
 use pw_util::pipewire::{self, context::ContextRc, main_loop::MainLoopRc};
 use tokio::sync::mpsc;
 

@@ -1,6 +1,6 @@
 use pw_util::{
     apo,
-    config::{BiquadCoefficients, FilterType},
+    module::{BiquadCoefficients, FilterType},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]

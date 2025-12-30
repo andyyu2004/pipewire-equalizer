@@ -11,8 +11,8 @@ use crossterm::{
 };
 use futures_util::{Stream, StreamExt as _};
 use pw_util::{
-    config::{
-        Config, Control, FilterType, Module, ModuleArgs, NodeKind, ParamEqConfig, ParamEqFilter,
+    module::{
+        self, Control, FilterType, Module, ModuleArgs, NodeKind, ParamEqConfig, ParamEqFilter,
         RateAndBiquadCoefficients, RawNodeConfig,
     },
     pipewire,
@@ -237,7 +237,7 @@ impl EqState {
 
     /// Save current EQ configuration to a PipeWire filter-chain config file using param_eq
     async fn save_config(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
-        let config = Config::from_kinds(
+        let config = module::Config::from_kinds(
             &self.name,
             self.preamp,
             [NodeKind::ParamEq {
@@ -438,13 +438,6 @@ where
             })
             .ok();
 
-        // Autoload the EQ module
-        // tracing::info!("Loading PipeWire EQ module");
-        // let _ = self.pw_tx.send(pw::Message::LoadModule {
-        //     name: "libpipewire-module-filter-chain".into(),
-        //     args: Box::new(self.eq_state.to_module_args(self.sample_rate)),
-        // });
-
         let mut events = pin!(events.fuse());
 
         loop {
@@ -624,12 +617,12 @@ where
             self.eq_state.sync(node_id, self.sample_rate);
         }
 
-        // Reload module if filter count changed (add/delete band)
-        if before_filter_count != self.eq_state.filters.len() {
+        // Reload module if filter count changed (add/delete band), or if nothing is loaded yet
+        if before_filter_count != self.eq_state.filters.len() || self.active_node_id.is_none() {
             tracing::debug!(
-                old_count = before_filter_count,
-                new_count = self.eq_state.filters.len(),
-                "Filter count changed, loading new module"
+                old_filter_count = before_filter_count,
+                new_filter_count = self.eq_state.filters.len(),
+                "Loading module"
             );
             let _ = self.pw_tx.send(pw::Message::LoadModule {
                 name: "libpipewire-module-filter-chain".into(),

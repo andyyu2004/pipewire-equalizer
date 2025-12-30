@@ -5,7 +5,7 @@ pub mod tui;
 use std::num::NonZero;
 
 use anyhow::Context;
-use pw_util::config::{BiquadCoefficients, FILTER_PREFIX, MANAGED_PROP};
+use pw_util::module::{BiquadCoefficients, FILTER_PREFIX, MANAGED_PROP};
 use tabled::Tabled;
 use tokio::process::Command;
 

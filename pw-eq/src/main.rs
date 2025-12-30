@@ -4,7 +4,7 @@ use crossterm::event::EventStream;
 use pw_eq::filter::Filter;
 use pw_eq::tui::App;
 use pw_eq::{FilterId, find_eq_node, use_eq};
-use pw_util::config::FILTER_PREFIX;
+use pw_util::module::FILTER_PREFIX;
 use ratatui::Terminal;
 use ratatui::prelude::CrosstermBackend;
 use std::backtrace::Backtrace;
@@ -185,7 +185,7 @@ async fn create_eq(
     let apo_config = pw_util::apo::parse_file(apo).await?;
 
     // Generate the filter-chain config
-    let config_content = pw_util::config::Config::from_apo(&name, &apo_config);
+    let config_content = pw_util::module::Config::from_apo(&name, &apo_config);
     let content = pw_util::to_spa_json(&config_content);
 
     // Get the config directory path

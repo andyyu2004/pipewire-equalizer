@@ -4,7 +4,7 @@ pub use pipewire;
 pub mod api;
 
 pub mod apo;
-pub mod config;
+pub mod module;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -157,5 +157,5 @@ pub async fn get_default_audio_sink() -> Result<u32> {
 
 pub fn to_spa_json<T: serde::Serialize>(value: &T) -> String {
     let json_value = serde_json::to_value(value).expect("Failed to serialize to JSON value");
-    self::config::SpaJson::new(&json_value).to_string()
+    self::module::SpaJson::new(&json_value).to_string()
 }

@@ -326,7 +326,7 @@ impl fmt::Display for SpaJson<'_> {
 mod tests {
     use crate::{
         apo::{self, FilterType},
-        config::{BiquadCoefficients, NodeKind, RateAndBiquadCoefficients, RawNodeConfig},
+        module::{BiquadCoefficients, NodeKind, RateAndBiquadCoefficients, RawNodeConfig},
         to_spa_json,
     };
     use expect_test::expect;

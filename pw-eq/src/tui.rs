@@ -1,6 +1,6 @@
 use crate::{FilterId, UpdateFilter, filter::Filter, update_filters, use_eq};
 use std::{
-    backtrace::Backtrace, error::Error, io, num::NonZero, ops::ControlFlow, pin::pin,
+    backtrace::Backtrace, error::Error, io, mem, num::NonZero, ops::ControlFlow, pin::pin,
     sync::mpsc::Receiver,
 };
 
@@ -40,6 +40,12 @@ enum Rotation {
 enum ViewMode {
     Normal,
     Expert,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputMode {
+    Normal,
+    Command,
 }
 
 // EQ state
@@ -367,6 +373,9 @@ pub struct App<B: Backend + io::Write> {
     original_default_sink: Option<u32>,
     pw_handle: Option<std::thread::JoinHandle<io::Result<()>>>,
     sample_rate: u32,
+    input_mode: InputMode,
+    command_buffer: String,
+    show_help: bool,
 }
 
 impl<B> App<B>
@@ -401,6 +410,9 @@ where
             pw_handle: Some(pw_handle),
             // TODO query
             sample_rate: 48000,
+            input_mode: InputMode::Normal,
+            command_buffer: String::new(),
+            show_help: false,
         })
     }
 
@@ -427,11 +439,11 @@ where
             .ok();
 
         // Autoload the EQ module
-        tracing::info!("Loading PipeWire EQ module");
-        let _ = self.pw_tx.send(pw::Message::LoadModule {
-            name: "libpipewire-module-filter-chain".into(),
-            args: Box::new(self.eq_state.to_module_args(self.sample_rate)),
-        });
+        // tracing::info!("Loading PipeWire EQ module");
+        // let _ = self.pw_tx.send(pw::Message::LoadModule {
+        //     name: "libpipewire-module-filter-chain".into(),
+        //     args: Box::new(self.eq_state.to_module_args(self.sample_rate)),
+        // });
 
         let mut events = pin!(events.fuse());
 
@@ -509,8 +521,16 @@ where
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
-        tracing::trace!(?key, "key event");
+        tracing::trace!(?key, mode = ?self.input_mode, "key event");
 
+        match self.input_mode {
+            InputMode::Normal => self.handle_normal_key(key),
+            InputMode::Command => self.handle_command_key(key),
+        }
+    }
+
+    fn handle_normal_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
+        assert!(self.input_mode == InputMode::Normal);
         let before_idx = self.eq_state.selected_band;
         let before_band = self.eq_state.filters[self.eq_state.selected_band];
         let before_preamp = self.eq_state.preamp;
@@ -522,6 +542,14 @@ where
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Ok(ControlFlow::Break(()));
             }
+
+            // Enter command mode
+            KeyCode::Char(':') => {
+                self.input_mode = InputMode::Command;
+                self.command_buffer.clear();
+            }
+            // Toggle help
+            KeyCode::Char('?') => self.show_help = !self.show_help,
 
             // Navigation
             KeyCode::Tab | KeyCode::Char('j') => self.eq_state.select_next_band(),
@@ -612,6 +640,42 @@ where
         Ok(ControlFlow::Continue(()))
     }
 
+    fn enter_normal_mode(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.command_buffer.clear();
+    }
+
+    fn handle_command_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
+        assert!(self.input_mode == InputMode::Command);
+
+        match key.code {
+            KeyCode::Esc => self.enter_normal_mode(),
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.enter_normal_mode()
+            }
+            KeyCode::Enter => {
+                let command = mem::take(&mut self.command_buffer);
+                self.enter_normal_mode();
+                self.execute_command(&command);
+            }
+            KeyCode::Backspace => {
+                self.command_buffer.pop();
+            }
+            KeyCode::Char(c) => self.command_buffer.push(c),
+            _ => {}
+        }
+
+        Ok(ControlFlow::Continue(()))
+    }
+
+    fn execute_command(&mut self, command: &str) {
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.is_empty() {
+            return;
+        }
+        todo!()
+    }
+
     fn draw(&mut self) -> anyhow::Result<()> {
         let eq_state = &self.eq_state;
         let sample_rate = self.sample_rate;
@@ -622,7 +686,7 @@ where
                     Constraint::Length(3),      // Header
                     Constraint::Min(10),        // Band table
                     Constraint::Percentage(40), // Frequency response chart
-                    Constraint::Length(3),      // Footer
+                    Constraint::Length(1),      // Footer
                 ])
                 .split(f.area());
 
@@ -666,12 +730,23 @@ where
             // Frequency response chart
             Self::draw_frequency_response(f, chunks[2], eq_state, sample_rate);
 
-            // Footer/Help
-            let help = Paragraph::new(
-                "Tab/j/k: select | t: type | m: mute | b: bypass | e: expert | f/F: freq | g/G: gain | q/Q: Q | p/P: preamp | a: add | d: delete | 0: zero | Esc/C-c: quit"
-            )
-            .block(Block::default().borders(Borders::ALL));
-            f.render_widget(help, chunks[3]);
+            // Footer: Command line or Help
+            let footer = match self.input_mode {
+                InputMode::Command => {
+                    Paragraph::new(format!(":{}", self.command_buffer))
+                }
+                InputMode::Normal if self.show_help => {
+                    Paragraph::new(
+                        "Tab/j/k: select | t: type | m: mute | b: bypass | e: expert | f/F: freq | g/G: gain | q/Q: Q | p/P: preamp | a: add | d: delete | 0: zero | :: command | ?: hide help"
+                    )
+                    .style(Style::default().fg(Color::DarkGray))
+                }
+                InputMode::Normal => {
+                    Paragraph::new("Press ? for help")
+                        .style(Style::default().fg(Color::DarkGray))
+                }
+            };
+            f.render_widget(footer, chunks[3]);
         })?;
         Ok(())
     }

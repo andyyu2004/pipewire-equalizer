@@ -34,9 +34,9 @@ struct Args {
 struct Create {
     /// Name for the EQ (e.g., focal-celestee)
     name: String,
-    /// Path to the .apo file
+    /// Path to the file (APO)
     #[arg(short, long)]
-    apo_path: PathBuf,
+    file: PathBuf,
     /// Set as default sink after creating
     #[arg(short, long)]
     r#use: bool,
@@ -252,13 +252,13 @@ async fn run_tui(args: Tui) -> anyhow::Result<()> {
 async fn create_eq(
     Create {
         name,
-        apo_path,
+        file,
         r#use: use_after,
         force,
     }: Create,
 ) -> anyhow::Result<()> {
     // Parse the .apo file
-    let apo_config = apo::Config::parse_file(apo_path).await?;
+    let apo_config = apo::Config::parse_file(file).await?;
 
     // Generate the filter-chain config
     let config_content = pw_util::module::Config::from_apo(&name, &apo_config);

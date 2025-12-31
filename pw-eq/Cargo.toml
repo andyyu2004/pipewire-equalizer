@@ -11,7 +11,7 @@ pw-util = { version = "0.1.0", path = "../pw-util" }
 tabled = "0.20.0"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "sync"] }
 serde_json.workspace = true
-crossterm = { version = "0.29.0", features = ["event-stream"] }
+crossterm = { version = "0.29.0", features = ["event-stream", "serde"] }
 ratatui = "0.30.0"
 futures-util = "0.3.31"
 tracing.workspace = true
@@ -22,4 +22,5 @@ shellish_parse = "2.2.0"
 shellexpand = "3.1.1"
 strum.workspace = true
 tokio-stream = "0.1.17"
-keymap = { version = "0.1.0", path = "../keymap" }
+keymap = { version = "0.1.0", path = "../keymap", features = ["serde"] }
+zi-input = { git = "https://github.com/andyyu2004/zi.git", features = ["crossterm", "serde"] }

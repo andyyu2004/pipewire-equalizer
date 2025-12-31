@@ -10,14 +10,16 @@ use std::{
     path::PathBuf,
     pin::{Pin, pin},
 };
+use zi_input::{Event, KeyCode, KeyEvent, KeyModifiers};
 
 use crossterm::{
     cursor,
-    event::{DisableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::DisableMouseCapture,
     execute,
     terminal::{self, EnterAlternateScreen},
 };
 use futures_util::{Stream, StreamExt as _, future::BoxFuture, stream::FusedStream};
+use keymap::KeyMap;
 use pw_util::{module::FilterType, pipewire};
 use ratatui::{
     Terminal,
@@ -47,16 +49,21 @@ enum Rotation {
     CounterClockwise,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Default)]
 enum ViewMode {
+    #[default]
     Normal,
     Expert,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "kebab-case")]
 enum InputMode {
+    #[default]
     Normal,
-    Command { buffer: String, cursor_pos: usize },
+    Command,
 }
 
 pub enum Notif {
@@ -87,9 +94,67 @@ pub struct App<B: Backend + io::Write> {
     command_history: Vec<String>,
     command_history_index: Option<usize>,
     command_history_scratch: String,
+    command_buffer: String,
+    command_cursor_pos: usize,
     show_help: bool,
     status: Option<Result<String, String>>,
     view_mode: ViewMode,
+    config: Config,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct Config {
+    keymap: KeyMap<InputMode, zi_input::KeyEvent, Action>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            keymap: serde_json::from_value(serde_json::json!({
+                "normal": {
+                    "<Esc>": { "enter-mode": { "mode": "normal" } },
+                    ":": { "enter-mode": { "mode": "command" } },
+                    "<C-c>": "quit",
+                    "?": "toggle-help",
+                    "j": "select-next",
+                    "k": "select-previous",
+                    "1": { "select-index": 0 },
+                    "2": { "select-index": 1 },
+                    "3": { "select-index": 2 },
+                    "4": { "select-index": 3 },
+                    "5": { "select-index": 4 },
+                    "6": { "select-index": 5 },
+                    "7": { "select-index": 6 },
+                    "8": { "select-index": 7 },
+                    "9": { "select-index": 8 },
+                    "l": { "adjust-frequency": { "multiplier": 1.0125 } },
+                    "<S-l>": { "adjust-frequency": { "multiplier": 1.1 } },
+                    "h": { "adjust-frequency": { "multiplier": 0.9875 } },
+                    "<S-h>": { "adjust-frequency": { "multiplier": 0.9 } },
+                    "g": { "adjust-gain": { "delta": 0.1 } },
+                    "<S-g>": { "adjust-gain": { "delta": -0.1 } },
+                    "r": { "adjust-q": { "delta": 0.01 } },
+                    "<S-R>": { "adjust-q": { "delta": 0.1 } },
+                    "w": { "adjust-q": { "delta": -0.01 } },
+                    "<S-W>": { "adjust-q": { "delta": -0.1 } },
+                    "p": { "adjust-preamp": { "delta": 0.1 } },
+                    "+": { "adjust-preamp": { "delta": 0.1 } },
+                    "<S-P>": { "adjust-preamp": { "delta": -0.1 } },
+                    "-": { "adjust-preamp": { "delta": -0.1 } },
+                    "<Tab>": { "cycle-filter-type": { "rotation": "clockwise" } },
+                    "<S-Tab>": { "cycle-filter-type": { "rotation": "counter-clockwise" } },
+                    "m": "toggle-mute",
+                    "b": "toggle-bypass",
+                    "a": "add-filter",
+                    "d": "remove-filter",
+                    "0": { "adjust-gain": { "set": 0.0 } },
+                    "x": { "cycle-view-mode": { "rotation": "clockwise" } },
+                },
+                "command": {}
+            }))
+            .unwrap(),
+        }
+    }
 }
 
 impl<B> App<B>
@@ -97,7 +162,11 @@ where
     B: Backend + io::Write,
     B::Error: Send + Sync + 'static,
 {
-    pub fn new(term: Terminal<B>, filters: impl IntoIterator<Item = Filter>) -> io::Result<Self> {
+    pub fn new(
+        term: Terminal<B>,
+        config: Config,
+        filters: impl IntoIterator<Item = Filter>,
+    ) -> io::Result<Self> {
         let (pw_tx, rx) = pipewire::channel::channel();
         let (notifs_tx, notifs) = mpsc::channel(100);
         let pw_handle = std::thread::spawn(|| pw_thread(notifs_tx, rx));
@@ -119,18 +188,21 @@ where
             tasks,
             task_tx,
             eq,
-            active_node_id: None,
-            original_default_sink: None,
+            config,
             pw_handle: Some(pw_handle),
-            // TODO query
+            // TODO query sample rate
             sample_rate: 48000,
-            input_mode: InputMode::Normal,
-            command_history: Vec::new(),
-            command_history_index: None,
-            command_history_scratch: String::new(),
-            show_help: false,
-            view_mode: ViewMode::Normal,
-            status: None,
+            active_node_id: Default::default(),
+            original_default_sink: Default::default(),
+            input_mode: Default::default(),
+            command_history: Default::default(),
+            command_history_index: Default::default(),
+            command_history_scratch: Default::default(),
+            command_buffer: Default::default(),
+            command_cursor_pos: Default::default(),
+            show_help: Default::default(),
+            view_mode: Default::default(),
+            status: Default::default(),
         })
     }
 
@@ -154,10 +226,7 @@ where
         Ok(())
     }
 
-    pub async fn run(
-        mut self,
-        events: impl Stream<Item = io::Result<Event>>,
-    ) -> anyhow::Result<()> {
+    pub async fn run(mut self, events: impl Stream<Item = zi_input::Event>) -> anyhow::Result<()> {
         execute!(
             self.term.backend_mut(),
             cursor::Show,
@@ -173,8 +242,12 @@ where
             .ok();
 
         if self.eq.filters.iter().any(|band| {
-            use FilterType::*;
-            band.gain > 0.0 || matches!(band.filter_type, BandPass | Notch | HighPass | LowPass)
+            use FilterType as Ft;
+            band.gain > 0.0
+                || matches!(
+                    band.filter_type,
+                    Ft::BandPass | Ft::Notch | Ft::HighPass | Ft::LowPass
+                )
         }) {
             // Load module if any band is not a no-op.
             // This is just a development convenience to avoid loading the module when starting
@@ -188,7 +261,7 @@ where
             self.draw()?;
 
             tokio::select! {
-                Ok(event) = events.select_next_some() => {
+                event = events.select_next_some() => {
                     if let ControlFlow::Break(()) = self.handle_event(event)? {
                         break;
                     }
@@ -306,7 +379,7 @@ where
 
         match &self.input_mode {
             InputMode::Normal => self.handle_normal_key(key),
-            InputMode::Command { .. } => self.handle_command_key(key),
+            InputMode::Command => self.handle_command_key(key),
         }
     }
 
@@ -318,70 +391,11 @@ where
         let before_bypass = self.eq.bypassed;
         let before_filter_count = self.eq.filters.len();
 
-        match key.code {
-            KeyCode::Esc => self.status = None,
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                return Ok(ControlFlow::Break(()));
+        if let Some(action) = self.config.keymap.get(&self.input_mode, &key) {
+            match self.perform(*action)? {
+                ControlFlow::Continue(()) => {}
+                ControlFlow::Break(()) => return Ok(ControlFlow::Break(())),
             }
-
-            KeyCode::Char(':') => self.enter_command_mode(),
-            KeyCode::Char('?') => self.show_help = !self.show_help,
-            KeyCode::Char('s') => {
-                let buffer = format!(
-                    "write $HOME/.config/pipewire/pipewire.conf.d/{}.conf",
-                    self.eq.name
-                );
-                let cursor_pos = buffer.len();
-                self.input_mode = InputMode::Command { buffer, cursor_pos };
-            }
-
-            KeyCode::Char('j') => self.eq.select_next_filter(),
-            KeyCode::Char('k') => self.eq.select_prev_filter(),
-            KeyCode::Char(c @ '1'..='9') => {
-                let idx = c.to_digit(10).unwrap() as usize - 1;
-                if idx < self.eq.filters.len() {
-                    self.eq.selected_idx = idx;
-                }
-            }
-
-            KeyCode::Char('l') => self.eq.adjust_freq(|f| f * 1.0125),
-            KeyCode::Char('L') => self.eq.adjust_freq(|f| f * 1.1),
-            KeyCode::Char('h') => self.eq.adjust_freq(|f| f / 1.0125),
-            KeyCode::Char('H') => self.eq.adjust_freq(|f| f / 1.1),
-
-            KeyCode::Char('g') => self.eq.adjust_gain(|g| g + 0.1),
-            KeyCode::Char('G') => self.eq.adjust_gain(|g| g - 0.1),
-
-            KeyCode::Char('r') => self.eq.adjust_q(|q| q + 0.01),
-            KeyCode::Char('R') => self.eq.adjust_q(|q| q + 0.1),
-            KeyCode::Char('w') => self.eq.adjust_q(|q| q - 0.01),
-            KeyCode::Char('W') => self.eq.adjust_q(|q| q - 0.1),
-
-            KeyCode::Char('p' | '+') => self.eq.adjust_preamp(|p| p + 0.1),
-            KeyCode::Char('P' | '-') => self.eq.adjust_preamp(|p| p - 0.1),
-
-            KeyCode::Tab | KeyCode::Char('t') => self.eq.cycle_filter_type(Rotation::Clockwise),
-            KeyCode::BackTab | KeyCode::Char('T') => {
-                self.eq.cycle_filter_type(Rotation::CounterClockwise)
-            }
-
-            KeyCode::Char('m') => self.eq.toggle_mute(),
-
-            KeyCode::Char('v') => self.cycle_view_mode(Rotation::Clockwise),
-
-            KeyCode::Char('b') => self.eq.toggle_bypass(),
-
-            // Band management
-            KeyCode::Char('a') => self.eq.add_filter(),
-            KeyCode::Char('d') => self.eq.delete_selected_filter(),
-            KeyCode::Char('0') => {
-                // Zero the gain on current band
-                if let Some(filter) = self.eq.filters.get_mut(self.eq.selected_idx) {
-                    filter.gain = 0.0;
-                }
-            }
-
-            _ => {}
         }
 
         if let Some(node_id) = self.active_node_id {
@@ -423,9 +437,17 @@ where
         };
     }
 
-    #[allow(dead_code)]
     fn perform(&mut self, action: Action) -> io::Result<ControlFlow<()>> {
+        let before_idx = self.eq.selected_idx;
+        let before_filter = self.eq.filters[self.eq.selected_idx];
+        let before_preamp = self.eq.preamp;
+        let before_bypass = self.eq.bypassed;
+        let before_filter_count = self.eq.filters.len();
         match action {
+            Action::EnterMode { mode } => match mode {
+                InputMode::Normal => self.enter_normal_mode(),
+                InputMode::Command => self.enter_command_mode(),
+            },
             Action::ClearStatus => self.status = None,
             Action::ToggleHelp => self.show_help = !self.show_help,
             Action::Quit => return Ok(ControlFlow::Break(())),
@@ -438,14 +460,43 @@ where
                     self.eq.selected_idx = idx;
                 }
             }
-            Action::AdjustFrequency { multiplier } => self.eq.adjust_freq(|f| f * multiplier),
-            Action::AdjustGain { delta } => self.eq.adjust_gain(|g| g + delta),
-            Action::AdjustQ { delta } => self.eq.adjust_q(|q| q + delta),
-            Action::AdjustPreamp { delta } => self.eq.adjust_preamp(|p| p + delta),
+            Action::AdjustFrequency(adj) => self.eq.adjust_freq(|f| adj.apply(f)),
+            Action::AdjustGain(adj) => self.eq.adjust_gain(|g| adj.apply(g)),
+            Action::AdjustQ(adj) => self.eq.adjust_q(|q| adj.apply(q)),
+            Action::AdjustPreamp(adj) => self.eq.adjust_preamp(|p| adj.apply(p)),
             Action::CycleFilterType { rotation } => self.eq.cycle_filter_type(rotation),
             Action::ToggleBypass => self.eq.toggle_bypass(),
             Action::ToggleMute => self.eq.toggle_mute(),
             Action::CycleViewMode { rotation } => self.cycle_view_mode(rotation),
+        }
+
+        if let Some(node_id) = self.active_node_id {
+            if before_preamp != self.eq.preamp {
+                self.sync_preamp(node_id);
+            }
+
+            if self.eq.selected_idx == before_idx
+                && self.eq.filters[self.eq.selected_idx] != before_filter
+            {
+                self.sync_filter(node_id, self.eq.selected_idx, self.sample_rate);
+            }
+
+            if before_bypass != self.eq.bypassed {
+                // If bypass state changed, sync all bands
+                self.sync(node_id, self.sample_rate);
+            }
+        }
+
+        // Load new module if filter count changed (add/delete band) because we cannot dynamically
+        // change the number of filters in the filter-chain module.
+        // Or if nothing is currently loaded.
+        if before_filter_count != self.eq.filters.len() || self.active_node_id.is_none() {
+            tracing::debug!(
+                old_filter_count = before_filter_count,
+                new_filter_count = self.eq.filters.len(),
+                "Reloading pipewire module"
+            );
+            self.load_module();
         }
 
         Ok(ControlFlow::Continue(()))
@@ -463,31 +514,30 @@ where
     }
 
     fn enter_command_mode(&mut self) {
-        self.input_mode = InputMode::Command {
-            buffer: String::new(),
-            cursor_pos: 0,
-        };
+        self.command_buffer.clear();
+        self.command_cursor_pos = 0;
+        self.input_mode = InputMode::Command;
         self.command_history_index = None;
         self.command_history_scratch.clear();
         self.status = None;
     }
 
     fn handle_command_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
-        let InputMode::Command { buffer, cursor_pos } = &mut self.input_mode else {
+        let InputMode::Command = &mut self.input_mode else {
             panic!("handle_command_key called in non-command mode");
         };
 
-        match key.code {
+        match key.code() {
             KeyCode::Esc => self.enter_normal_mode(),
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('c') if key.modifiers().contains(KeyModifiers::CONTROL) => {
                 self.enter_normal_mode()
             }
             KeyCode::Enter => {
-                let InputMode::Command { buffer, .. } =
-                    mem::replace(&mut self.input_mode, InputMode::Normal)
+                let InputMode::Command = mem::replace(&mut self.input_mode, InputMode::Normal)
                 else {
                     unreachable!();
                 };
+                let buffer = mem::take(&mut self.command_buffer);
                 return self.execute_command(&buffer);
             }
             KeyCode::Up => {
@@ -498,16 +548,17 @@ where
                 match self.command_history_index {
                     None => {
                         // Save current buffer and start at the end of history
-                        self.command_history_scratch = buffer.clone();
+                        self.command_history_scratch = mem::take(&mut self.command_buffer);
                         self.command_history_index = Some(self.command_history.len() - 1);
-                        *buffer = self.command_history[self.command_history.len() - 1].clone();
-                        *cursor_pos = buffer.len();
+                        self.command_buffer =
+                            self.command_history[self.command_history.len() - 1].clone();
+                        self.command_cursor_pos = self.command_buffer.len();
                     }
                     Some(idx) if idx > 0 => {
                         // Go back in history
                         self.command_history_index = Some(idx - 1);
-                        *buffer = self.command_history[idx - 1].clone();
-                        *cursor_pos = buffer.len();
+                        self.command_buffer = self.command_history[idx - 1].clone();
+                        self.command_cursor_pos = self.command_buffer.len();
                     }
                     _ => {}
                 }
@@ -517,36 +568,40 @@ where
                     if idx + 1 < self.command_history.len() {
                         // Go forward in history
                         self.command_history_index = Some(idx + 1);
-                        *buffer = self.command_history[idx + 1].clone();
-                        *cursor_pos = buffer.len();
+                        self.command_buffer = self.command_history[idx + 1].clone();
+                        self.command_cursor_pos = self.command_buffer.len();
                     } else {
                         // At the end, restore scratch
                         self.command_history_index = None;
-                        *buffer = mem::take(&mut self.command_history_scratch);
-                        *cursor_pos = buffer.len();
+                        self.command_buffer = mem::take(&mut self.command_history_scratch);
+                        self.command_cursor_pos = self.command_buffer.len();
                     }
                 }
             }
             KeyCode::Backspace => {
-                if *cursor_pos > 0 {
-                    buffer.remove(*cursor_pos - 1);
-                    *cursor_pos -= 1;
+                if self.command_cursor_pos > 0 && !self.command_buffer.is_empty() {
+                    self.command_buffer.remove(self.command_cursor_pos - 1);
+                    self.command_cursor_pos -= 1;
                 }
                 self.command_history_index = None;
             }
             KeyCode::Delete => {
-                if *cursor_pos < buffer.len() {
-                    buffer.remove(*cursor_pos);
+                if self.command_cursor_pos < self.command_buffer.len() {
+                    self.command_buffer.remove(self.command_cursor_pos);
                 }
                 self.command_history_index = None;
             }
-            KeyCode::Left => *cursor_pos = cursor_pos.saturating_sub(1),
-            KeyCode::Right => *cursor_pos = (*cursor_pos + 1).min(buffer.len()),
-            KeyCode::Home => *cursor_pos = 0,
-            KeyCode::End => *cursor_pos = buffer.len(),
+            KeyCode::Left => self.command_cursor_pos = self.command_cursor_pos.saturating_sub(1),
+            KeyCode::Right => {
+                if self.command_cursor_pos < self.command_buffer.len() {
+                    self.command_cursor_pos += 1;
+                }
+            }
+            KeyCode::Home => self.command_cursor_pos = 0,
+            KeyCode::End => self.command_cursor_pos = self.command_buffer.len(),
             KeyCode::Char(c) => {
-                buffer.insert(*cursor_pos, c);
-                *cursor_pos += 1;
+                self.command_buffer.insert(self.command_cursor_pos, c);
+                self.command_cursor_pos += 1;
                 self.command_history_index = None;
             }
             _ => {}
@@ -691,8 +746,8 @@ where
 
             // Footer: Status message, Command line, or Help
             let footer = match &self.input_mode {
-                InputMode::Command { buffer, .. } => {
-                    Paragraph::new(format!(":{}", buffer))
+                InputMode::Command  => {
+                    Paragraph::new(format!(":{}", self.command_buffer))
                 }
                 InputMode::Normal if self.status.is_some() => {
                     let (msg, color) = match self.status.as_ref().unwrap() {
@@ -714,8 +769,8 @@ where
             };
             f.render_widget(footer, chunks[3]);
 
-            if let InputMode::Command { cursor_pos, .. } = &self.input_mode {
-                f.set_cursor_position((chunks[3].x + 1 + *cursor_pos as u16, chunks[3].y));
+            if let InputMode::Command = &self.input_mode {
+                f.set_cursor_position((chunks[3].x + 1 + self.command_cursor_pos as u16, chunks[3].y));
             }
         })?;
         Ok(())
@@ -978,4 +1033,10 @@ impl std::fmt::Display for Gain {
             write!(f, "{:+.1}", self.0)
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn test_default_config_parses() {
+    let _config = Config::default();
 }

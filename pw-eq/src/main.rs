@@ -1,8 +1,9 @@
 use anyhow::Context as _;
 use clap::Parser;
 use crossterm::event::EventStream;
+use futures_util::StreamExt as _;
 use pw_eq::filter::Filter;
-use pw_eq::tui::App;
+use pw_eq::tui::{App, Config};
 use pw_eq::{FilterId, find_eq_node, use_eq};
 use pw_util::apo::{self, FilterType};
 use pw_util::module::FILTER_PREFIX;
@@ -233,10 +234,13 @@ async fn run_tui(args: Tui) -> anyhow::Result<()> {
     };
 
     let term = ratatui::init();
-    let mut app = App::new(term, filters)?;
+    let config = Config::default();
+    let mut app = App::new(term, config, filters)?;
     app.enter()?;
 
-    let events = EventStream::new();
+    let events = EventStream::new()
+        .filter_map(|event| async { event.ok() })
+        .filter_map(|event| async { event.try_into().ok() });
 
     app.run(events).await?;
     ratatui::restore();

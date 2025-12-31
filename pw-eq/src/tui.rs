@@ -971,14 +971,7 @@ where
             .iter()
             .enumerate()
             .map(|(idx, band)| {
-                // Format frequency with better precision
-                let freq_str = if band.frequency >= 10000.0 {
-                    format!("{:.1}k", band.frequency / 1000.0)
-                } else if band.frequency >= 1000.0 {
-                    format!("{:.2}k", band.frequency / 1000.0)
-                } else {
-                    format!("{:.0}", band.frequency)
-                };
+                let freq_str = format!("{:.0}", band.frequency);
 
                 // Format filter type (following APO conventions)
                 let type_str = match band.filter_type {
@@ -1134,9 +1127,9 @@ where
                     .style(
                         Style::default()
                             .fg(Color::White)
-                            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                            .add_modifier(Modifier::BOLD),
                     )
-                    .bottom_margin(1),
+                    .bottom_margin(0),
             )
             .block(
                 Block::default()
@@ -1183,7 +1176,6 @@ where
             .min(-1.0);
 
         let dataset = Dataset::default()
-            .name("EQ Response")
             .marker(Marker::Braille)
             .graph_type(GraphType::Line)
             .style(Style::default().fg(Color::Cyan))
@@ -1211,11 +1203,7 @@ where
             ]);
 
         let chart = Chart::new(vec![dataset])
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Frequency Response"),
-            )
+            .block(Block::default().borders(Borders::ALL))
             .x_axis(x_axis)
             .y_axis(y_axis);
 

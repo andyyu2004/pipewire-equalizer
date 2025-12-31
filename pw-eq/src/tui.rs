@@ -1,7 +1,13 @@
 use crate::{FilterId, UpdateFilter, filter::Filter, update_filters, use_eq};
 use std::{
-    backtrace::Backtrace, error::Error, io, mem, num::NonZero, ops::ControlFlow, path::PathBuf,
-    pin::pin, sync::mpsc::Receiver,
+    backtrace::Backtrace,
+    error::Error,
+    io, mem,
+    num::NonZero,
+    ops::ControlFlow,
+    path::PathBuf,
+    pin::{Pin, pin},
+    sync::mpsc::Receiver,
 };
 
 use crossterm::{
@@ -10,7 +16,7 @@ use crossterm::{
     execute,
     terminal::{self, EnterAlternateScreen},
 };
-use futures_util::{Stream, StreamExt as _};
+use futures_util::{Stream, StreamExt as _, future::BoxFuture, stream::FusedStream};
 use pw_util::{
     apo,
     module::{
@@ -29,6 +35,7 @@ use ratatui::{
     widgets::{Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table},
 };
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::pw::{self, pw_thread};
 
@@ -397,9 +404,14 @@ pub enum Notif {
     Error(anyhow::Error),
 }
 
+pub type TaskResult = Result<String, String>;
+pub type Task = BoxFuture<'static, TaskResult>;
+
 pub struct App<B: Backend + io::Write> {
     term: Terminal<B>,
     notifs: mpsc::Receiver<Notif>,
+    tasks: Pin<Box<dyn FusedStream<Item = TaskResult> + Send>>,
+    task_tx: mpsc::Sender<Task>,
     pw_tx: pipewire::channel::Sender<pw::Message>,
     panic_rx: Receiver<(String, Backtrace)>,
     eq_state: EqState,
@@ -412,7 +424,7 @@ pub struct App<B: Backend + io::Write> {
     command_history_index: Option<usize>,
     command_history_scratch: String,
     show_help: bool,
-    status_error: Option<String>,
+    status: Option<Result<String, String>>,
 }
 
 impl<B> App<B>
@@ -429,6 +441,9 @@ where
         let (notifs_tx, notifs) = mpsc::channel(100);
         let pw_handle = std::thread::spawn(|| pw_thread(notifs_tx, rx));
 
+        let (task_tx, task_rx) = mpsc::channel::<BoxFuture<'static, TaskResult>>(100);
+        let tasks = Box::pin(ReceiverStream::new(task_rx).buffered(8));
+
         let filters = filters.into_iter().collect::<Vec<_>>();
         let eq_state = if !filters.is_empty() {
             EqState::with_filters("pweq".to_string(), filters)
@@ -441,6 +456,8 @@ where
             panic_rx,
             pw_tx,
             notifs,
+            tasks,
+            task_tx,
             eq_state,
             active_node_id: None,
             original_default_sink: None,
@@ -452,8 +469,17 @@ where
             command_history_index: None,
             command_history_scratch: String::new(),
             show_help: false,
-            status_error: None,
+            status: None,
         })
+    }
+
+    fn schedule(&self, fut: impl std::future::Future<Output = TaskResult> + Send + 'static) {
+        match self.task_tx.try_send(Box::pin(fut)) {
+            Ok(()) => {}
+            Err(err) => {
+                tracing::error!(error = %err, "failed to schedule task");
+            }
+        }
     }
 
     pub fn enter(&mut self) -> io::Result<()> {
@@ -497,6 +523,7 @@ where
                     }
                 }
                 Some(notif) = self.notifs.recv() => self.on_notif(notif).await,
+                result = self.tasks.select_next_some() => self.status = Some(result),
             }
         }
 
@@ -578,7 +605,7 @@ where
         let before_filter_count = self.eq_state.filters.len();
 
         match key.code {
-            KeyCode::Esc => return Ok(ControlFlow::Break(())),
+            KeyCode::Esc => self.status = None,
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Ok(ControlFlow::Break(()));
             }
@@ -688,7 +715,7 @@ where
         };
         self.command_history_index = None;
         self.command_history_scratch.clear();
-        self.status_error = None;
+        self.status = None;
     }
 
     fn handle_command_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
@@ -783,7 +810,7 @@ where
                 cmd = last_cmd;
                 true
             } else {
-                self.status_error = Some("no previous command".to_string());
+                self.status = Some(Err("no previous command".to_string()));
                 return Ok(ControlFlow::Continue(()));
             }
         } else {
@@ -799,7 +826,7 @@ where
         let mut words = match shellish_parse::parse(&cmd, true) {
             Ok(words) => words,
             Err(err) => {
-                self.status_error = Some(format!("command parse error: {err}"));
+                self.status = Some(Err(format!("command parse error: {err}")));
                 return Ok(ControlFlow::Continue(()));
             }
         };
@@ -818,7 +845,7 @@ where
                 let path = match args {
                     [path] => PathBuf::from(path),
                     _ => {
-                        self.status_error = Some("usage: write <path>".to_string());
+                        self.status = Some(Err("usage: write <path>".to_string()));
                         return Ok(ControlFlow::Continue(()));
                     }
                 };
@@ -829,28 +856,25 @@ where
                 };
 
                 if path.exists() && !force {
-                    self.status_error = Some(format!(
+                    self.status = Some(Err(format!(
                         "file {} already exists (use ! to overwrite)",
                         path.display()
-                    ));
+                    )));
                     return Ok(ControlFlow::Continue(()));
                 }
 
-                tokio::spawn({
+                self.schedule({
                     let eq_state = self.eq_state.clone();
+                    let path = path.clone();
                     async move {
                         match eq_state.save_config(&path, format).await {
-                            Ok(()) => {
-                                tracing::info!(path = %path.display(), "EQ configuration saved")
-                            }
-                            Err(err) => {
-                                tracing::error!(error = %err, "failed to save EQ configuration")
-                            }
+                            Ok(()) => Ok(format!("Saved to {}", path.display())),
+                            Err(err) => Err(format!("Failed to save: {err}")),
                         }
                     }
                 });
             }
-            _ => self.status_error = Some(format!("unknown command: {cmd}")),
+            _ => self.status = Some(Err(format!("unknown command: {cmd}"))),
         }
 
         Ok(ControlFlow::Continue(()))
@@ -915,9 +939,12 @@ where
                 InputMode::Command { buffer, .. } => {
                     Paragraph::new(format!(":{}", buffer))
                 }
-                InputMode::Normal if self.status_error.is_some() => {
-                    Paragraph::new(self.status_error.as_ref().unwrap().as_str())
-                        .style(Style::default().fg(Color::Red))
+                InputMode::Normal if self.status.is_some() => {
+                    let (msg, color) = match self.status.as_ref().unwrap() {
+                        Ok(msg) => (msg.as_str(), Color::White),
+                        Err(msg) => (msg.as_str(), Color::Red),
+                    };
+                    Paragraph::new(msg).style(Style::default().fg(color))
                 }
                 InputMode::Normal if self.show_help => {
                     Paragraph::new(

@@ -388,9 +388,9 @@ mod tests {
                                         name = "pweq.filter_preamp"
                                         label = "bq_highshelf"
                                         control = {
-                                            Freq = 0.0
-                                            Q = 0.0
-                                            Gain = 0.0
+                                            freq = 0.0
+                                            q = 0.0
+                                            gain = 0.0
                                         }
                                     }
                                     {

@@ -39,8 +39,19 @@ impl Default for Filter {
 impl Filter {
     /// Calculate biquad coefficients based on filter type
     /// Returns normalized (b0, b1, b2, a0, a1, a2) where a0 = 1.0
-    /// If muted, calculates with 0 gain (bypass)
+    /// If muted, returns identity coefficients (pass-through)
     pub fn biquad_coeffs(&self, sample_rate: f64) -> BiquadCoefficients {
+        // When muted, return identity filter (pass-through)
+        if self.muted {
+            return BiquadCoefficients {
+                b0: 1.0,
+                b1: 0.0,
+                b2: 0.0,
+                a1: 0.0,
+                a2: 0.0,
+            };
+        }
+
         assert!(self.q > 0.0, "Q factor must be positive");
         assert!(self.frequency > 0.0);
         use std::f64::consts::PI;
@@ -52,9 +63,7 @@ impl Filter {
         let sin_w0 = w0.sin();
         let alpha = sin_w0 / (2.0 * self.q);
 
-        // When muted, use 0 gain (no effect)
-        let gain = if self.muted { 0.0 } else { self.gain };
-        let a = 10_f64.powf(gain / 40.0); // dB to amplitude
+        let a = 10_f64.powf(self.gain / 40.0); // dB to amplitude
 
         // These are not identical to pipewire's implementation, but the results are very close.
         // Can copy their implementation directly if exact match is needed.

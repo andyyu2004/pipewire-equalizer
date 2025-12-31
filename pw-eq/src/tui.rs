@@ -988,6 +988,7 @@ where
                     FilterType::LowPass => "LPQ",
                     FilterType::Peaking => "PK",
                     FilterType::BandPass => "BP",
+                    FilterType::Notch => "NO",
                     FilterType::HighPass => "HPQ",
                     FilterType::HighShelf => "HSC",
                 };

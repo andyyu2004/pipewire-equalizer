@@ -121,12 +121,13 @@ impl Module {
                 gain: filter.gain,
             };
             match filter.filter_type {
-                FilterType::Peaking => NodeKind::Peaking { control },
                 FilterType::LowShelf => NodeKind::LowShelf { control },
-                FilterType::HighShelf => NodeKind::HighShelf { control },
                 FilterType::LowPass => NodeKind::LowPass { control },
+                FilterType::Peaking => NodeKind::Peaking { control },
                 FilterType::BandPass => NodeKind::BandPass { control },
+                FilterType::Notch => NodeKind::Notch { control },
                 FilterType::HighPass => NodeKind::HighPass { control },
+                FilterType::HighShelf => NodeKind::HighShelf { control },
             }
         });
 
@@ -220,6 +221,8 @@ pub enum NodeKind {
     LowPass { control: Control },
     #[serde(rename = "bq_bandpass")]
     BandPass { control: Control },
+    #[serde(rename = "bq_notch")]
+    Notch { control: Control },
     #[serde(rename = "bq_highpass")]
     HighPass { control: Control },
     #[serde(rename = "bq_raw")]
@@ -282,6 +285,8 @@ pub enum FilterType {
     Peaking,
     #[serde(rename = "bq_bandpass")]
     BandPass,
+    #[serde(rename = "bq_notch")]
+    Notch,
     #[serde(rename = "bq_highpass")]
     HighPass,
     #[serde(rename = "bq_highshelf")]

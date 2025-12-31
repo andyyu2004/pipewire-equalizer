@@ -41,9 +41,13 @@ impl Filter {
     /// Returns normalized (b0, b1, b2, a0, a1, a2) where a0 = 1.0
     /// If muted, calculates with 0 gain (bypass)
     pub fn biquad_coeffs(&self, sample_rate: f64) -> BiquadCoefficients {
+        assert!(self.q > 0.0, "Q factor must be positive");
+        assert!(self.frequency > 0.0);
         use std::f64::consts::PI;
 
         let w0 = 2.0 * PI * self.frequency / sample_rate;
+        assert!(w0 > 0.0 && w0 < PI, "Frequency must be in (0, Nyquist)");
+
         let cos_w0 = w0.cos();
         let sin_w0 = w0.sin();
         let alpha = sin_w0 / (2.0 * self.q);
@@ -107,6 +111,16 @@ impl Filter {
                 let b0 = alpha;
                 let b1 = 0.0;
                 let b2 = -alpha;
+                let a0 = 1.0 + alpha;
+                let a1 = -2.0 * cos_w0;
+                let a2 = 1.0 - alpha;
+                (b0, b1, b2, a0, a1, a2)
+            }
+            FilterType::Notch => {
+                // Notch (band-stop/band-reject filter)
+                let b0 = 1.0;
+                let b1 = -2.0 * cos_w0;
+                let b2 = 1.0;
                 let a0 = 1.0 + alpha;
                 let a1 = -2.0 * cos_w0;
                 let a2 = 1.0 - alpha;

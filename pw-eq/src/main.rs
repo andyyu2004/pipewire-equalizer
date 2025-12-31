@@ -6,9 +6,6 @@ use pw_eq::tui::App;
 use pw_eq::{FilterId, find_eq_node, use_eq};
 use pw_util::apo::{self, FilterType};
 use pw_util::module::FILTER_PREFIX;
-use ratatui::Terminal;
-use ratatui::prelude::CrosstermBackend;
-use std::backtrace::Backtrace;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::PathBuf;
@@ -223,12 +220,6 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run_tui(args: Tui) -> anyhow::Result<()> {
-    let (panic_tx, panic_rx) = std::sync::mpsc::sync_channel(1);
-    std::panic::set_hook(Box::new(move |info| {
-        let backtrace = Backtrace::capture();
-        let _ = panic_tx.send((info.to_string(), backtrace));
-    }));
-
     let filters = match (args.load, args.preset) {
         (Some(_), Some(_)) => unreachable!("clap should prevent this case"),
         (Some(apo_path), None) => {
@@ -240,13 +231,15 @@ async fn run_tui(args: Tui) -> anyhow::Result<()> {
         _ => vec![],
     };
 
-    let term = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
-    let mut app = App::new(term, filters, panic_rx)?;
+    let term = ratatui::init();
+    let mut app = App::new(term, filters)?;
     app.enter()?;
 
     let events = EventStream::new();
 
-    app.run(events).await
+    app.run(events).await?;
+    ratatui::restore();
+    Ok(())
 }
 
 async fn create_eq(

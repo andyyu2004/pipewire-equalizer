@@ -1,13 +1,11 @@
 use crate::{FilterId, UpdateFilter, filter::Filter, update_filters, use_eq};
 use std::{
-    backtrace::Backtrace,
     error::Error,
     io, mem,
     num::NonZero,
     ops::ControlFlow,
     path::PathBuf,
     pin::{Pin, pin},
-    sync::mpsc::Receiver,
 };
 
 use crossterm::{
@@ -374,7 +372,6 @@ pub struct App<B: Backend + io::Write> {
     tasks: Pin<Box<dyn FusedStream<Item = TaskResult> + Send>>,
     task_tx: mpsc::Sender<Task>,
     pw_tx: pipewire::channel::Sender<pw::Message>,
-    panic_rx: Receiver<(String, Backtrace)>,
     eq: EqState,
     active_node_id: Option<u32>,
     original_default_sink: Option<u32>,
@@ -393,11 +390,7 @@ where
     B: Backend + io::Write,
     B::Error: Send + Sync + 'static,
 {
-    pub fn new(
-        term: Terminal<B>,
-        filters: impl IntoIterator<Item = Filter>,
-        panic_rx: Receiver<(String, Backtrace)>,
-    ) -> io::Result<Self> {
+    pub fn new(term: Terminal<B>, filters: impl IntoIterator<Item = Filter>) -> io::Result<Self> {
         let (pw_tx, rx) = pipewire::channel::channel();
         let (notifs_tx, notifs) = mpsc::channel(100);
         let pw_handle = std::thread::spawn(|| pw_thread(notifs_tx, rx));
@@ -414,7 +407,6 @@ where
 
         Ok(Self {
             term,
-            panic_rx,
             pw_tx,
             notifs,
             tasks,
@@ -1222,19 +1214,6 @@ where
             .y_axis(y_axis);
 
         f.render_widget(chart, area);
-    }
-}
-
-impl<W: Backend + io::Write> Drop for App<W> {
-    fn drop(&mut self) {
-        let _ = ratatui::try_restore();
-
-        if let Ok((panic, backtrace)) = self.panic_rx.try_recv() {
-            use std::io::Write as _;
-            let mut stderr = io::stderr().lock();
-            let _ = writeln!(stderr, "{panic}");
-            let _ = writeln!(stderr, "{backtrace}");
-        }
     }
 }
 

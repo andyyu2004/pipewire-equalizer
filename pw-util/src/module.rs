@@ -34,6 +34,8 @@ pub struct Module {
 
 impl Module {
     pub fn from_kinds(name: &str, preamp: f64, kinds: impl IntoIterator<Item = NodeKind>) -> Self {
+        let mut kinds = kinds.into_iter().peekable();
+
         let preamp_node = Node {
             node_type: NodeType::Builtin,
             name: format!("{FILTER_PREFIX}preamp"),
@@ -47,13 +49,38 @@ impl Module {
             },
         };
 
-        let nodes: Vec<Node> = std::iter::once(preamp_node)
-            .chain(kinds.into_iter().enumerate().map(|(i, kind)| Node {
+        let nodes: Vec<Node> = if let Some(NodeKind::ParamEq { config }) = kinds.peek() {
+            // If using param_eq, integrate preamp into that node
+            let mut filters = config.filters.clone();
+            filters.insert(
+                0,
+                ParamEqFilter {
+                    ty: FilterType::HighShelf,
+                    control: Control {
+                        freq: 0.0,
+                        q: 0.0,
+                        gain: preamp,
+                    },
+                },
+            );
+            let param_eq_node = Node {
                 node_type: NodeType::Builtin,
-                name: format!("{FILTER_PREFIX}{}", i + 1),
-                kind,
-            }))
-            .collect();
+                name: format!("{FILTER_PREFIX}1"),
+                kind: NodeKind::ParamEq {
+                    config: ParamEqConfig { filters },
+                },
+            };
+            vec![param_eq_node]
+        } else {
+            std::iter::once(preamp_node)
+                .chain(kinds.enumerate().map(|(i, kind)| Node {
+                    node_type: NodeType::Builtin,
+                    name: format!("{FILTER_PREFIX}{}", i + 1),
+                    kind,
+                }))
+                .collect()
+        };
+
         let links: Vec<Link> = (0..nodes.len().saturating_sub(1))
             .map(|i| Link {
                 output: format!("{}:Out", nodes[i].name),
@@ -317,7 +344,8 @@ mod tests {
     use crate::{
         apo::{self},
         module::{
-            BiquadCoefficients, FilterType, NodeKind, RateAndBiquadCoefficients, RawNodeConfig,
+            BiquadCoefficients, Control, FilterType, NodeKind, ParamEqConfig, ParamEqFilter,
+            RateAndBiquadCoefficients, RawNodeConfig,
         },
         to_spa_json,
     };
@@ -402,6 +430,96 @@ mod tests {
                             }
                             capture.props = {
                                 node.name = "effect_output.pweq.test-eq"
+                                media.class = "Audio/Sink"
+                                pweq.managed = true
+                            }
+                        }
+                    }
+                ]
+            }"#]]
+        .assert_eq(&out);
+    }
+
+    #[test]
+    fn test_generate_config_from_param_eq() {
+        let out = to_spa_json(&Config::from_kinds(
+            "param-eq",
+            -4.2,
+            [NodeKind::ParamEq {
+                config: ParamEqConfig {
+                    filters: vec![
+                        ParamEqFilter {
+                            ty: FilterType::LowShelf,
+                            control: Control {
+                                freq: 200.0,
+                                q: 0.707,
+                                gain: -6.0,
+                            },
+                        },
+                        ParamEqFilter {
+                            ty: FilterType::Peaking,
+                            control: Control {
+                                freq: 1000.0,
+                                q: 1.0,
+                                gain: 3.0,
+                            },
+                        },
+                    ],
+                },
+            }],
+        ));
+
+        // The preamp should be added into the param-eq node rather than using a separate node
+        expect![[r#"
+            {
+                context.modules = [
+                    {
+                        name = "libpipewire-module-filter-chain"
+                        args = {
+                            node.description = "param-eq equalizer"
+                            media.name = "param-eq"
+                            filter.graph = {
+                                nodes = [
+                                    {
+                                        type = "builtin"
+                                        name = "pweq.filter_1"
+                                        label = "param_eq"
+                                        config = {
+                                            filters = [
+                                                {
+                                                    type = "bq_highshelf"
+                                                    Freq = 0.0
+                                                    Q = 0.0
+                                                    Gain = -4.2
+                                                }
+                                                {
+                                                    type = "bq_lowshelf"
+                                                    Freq = 200.0
+                                                    Q = 0.707
+                                                    Gain = -6.0
+                                                }
+                                                {
+                                                    type = "bq_peaking"
+                                                    Freq = 1000.0
+                                                    Q = 1.0
+                                                    Gain = 3.0
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                            audio.channels = 2
+                            audio_position = [
+                                "FL"
+                                "FR"
+                            ]
+                            playback.props = {
+                                node.name = "effect_input.pweq.param-eq"
+                                node.passive = false
+                            }
+                            capture.props = {
+                                node.name = "effect_output.pweq.param-eq"
                                 media.class = "Audio/Sink"
                                 pweq.managed = true
                             }

@@ -20,6 +20,15 @@ pub enum Action {
     AdjustPreamp(Adjustment),
     CycleFilterType { rotation: Rotation },
     CycleViewMode { rotation: Rotation },
+    ExecuteCommand,
+    CommandHistoryPrevious,
+    CommandHistoryNext,
+    DeleteCharBackward,
+    DeleteCharForward,
+    MoveCursorLeft,
+    MoveCursorRight,
+    MoveCursorHome,
+    MoveCursorEnd,
 }
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]

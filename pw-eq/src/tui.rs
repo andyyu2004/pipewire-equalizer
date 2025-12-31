@@ -150,7 +150,19 @@ impl Default for Config {
                     "x":       { "cycle-view-mode": { "rotation": "clockwise" } },
                     "0":       { "adjust-gain": { "set": 0.0 } },
                 },
-                "command": {}
+                "command": {
+                    "<Esc>":       { "enter-mode": { "mode": "normal" } },
+                    "<C-c>":       { "enter-mode": { "mode": "normal" } },
+                    "<CR>":        "execute-command",
+                    "<Up>":        "command-history-previous",
+                    "<Down>":      "command-history-next",
+                    "<BS>":        "delete-char-backward",
+                    "<Del>":       "delete-char-forward",
+                    "<Left>":      "move-cursor-left",
+                    "<Right>":     "move-cursor-right",
+                    "<Home>":      "move-cursor-home",
+                    "<End>":       "move-cursor-end",
+                }
             }))
             .unwrap(),
         }
@@ -468,6 +480,39 @@ where
             Action::ToggleBypass => self.eq.toggle_bypass(),
             Action::ToggleMute => self.eq.toggle_mute(),
             Action::CycleViewMode { rotation } => self.cycle_view_mode(rotation),
+            Action::ExecuteCommand => {
+                let InputMode::Command = mem::replace(&mut self.input_mode, InputMode::Normal)
+                else {
+                    return Ok(ControlFlow::Continue(()));
+                };
+                let buffer = mem::take(&mut self.command_buffer);
+                return self.execute_command(&buffer);
+            }
+            Action::CommandHistoryPrevious => self.command_history_previous(),
+            Action::CommandHistoryNext => self.command_history_next(),
+            Action::DeleteCharBackward => {
+                if self.command_cursor_pos > 0 && !self.command_buffer.is_empty() {
+                    self.command_buffer.remove(self.command_cursor_pos - 1);
+                    self.command_cursor_pos -= 1;
+                }
+                self.command_history_index = None;
+            }
+            Action::DeleteCharForward => {
+                if self.command_cursor_pos < self.command_buffer.len() {
+                    self.command_buffer.remove(self.command_cursor_pos);
+                }
+                self.command_history_index = None;
+            }
+            Action::MoveCursorLeft => {
+                self.command_cursor_pos = self.command_cursor_pos.saturating_sub(1)
+            }
+            Action::MoveCursorRight => {
+                if self.command_cursor_pos < self.command_buffer.len() {
+                    self.command_cursor_pos += 1;
+                }
+            }
+            Action::MoveCursorHome => self.command_cursor_pos = 0,
+            Action::MoveCursorEnd => self.command_cursor_pos = self.command_buffer.len(),
         }
 
         if let Some(node_id) = self.active_node_id {
@@ -522,89 +567,62 @@ where
         self.status = None;
     }
 
+    fn command_history_previous(&mut self) {
+        if self.command_history.is_empty() {
+            return;
+        }
+
+        match self.command_history_index {
+            None => {
+                // Save current buffer and start at the end of history
+                self.command_history_scratch = mem::take(&mut self.command_buffer);
+                self.command_history_index = Some(self.command_history.len() - 1);
+                self.command_buffer = self.command_history[self.command_history.len() - 1].clone();
+                self.command_cursor_pos = self.command_buffer.len();
+            }
+            Some(idx) if idx > 0 => {
+                // Go back in history
+                self.command_history_index = Some(idx - 1);
+                self.command_buffer = self.command_history[idx - 1].clone();
+                self.command_cursor_pos = self.command_buffer.len();
+            }
+            _ => {}
+        }
+    }
+
+    fn command_history_next(&mut self) {
+        if let Some(idx) = self.command_history_index {
+            if idx + 1 < self.command_history.len() {
+                // Go forward in history
+                self.command_history_index = Some(idx + 1);
+                self.command_buffer = self.command_history[idx + 1].clone();
+                self.command_cursor_pos = self.command_buffer.len();
+            } else {
+                // At the end, restore scratch
+                self.command_history_index = None;
+                self.command_buffer = mem::take(&mut self.command_history_scratch);
+                self.command_cursor_pos = self.command_buffer.len();
+            }
+        }
+    }
+
     fn handle_command_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
-        let InputMode::Command = &mut self.input_mode else {
-            panic!("handle_command_key called in non-command mode");
-        };
+        assert!(matches!(self.input_mode, InputMode::Command));
 
-        match key.code() {
-            KeyCode::Esc => self.enter_normal_mode(),
-            KeyCode::Char('c') if key.modifiers().contains(KeyModifiers::CONTROL) => {
-                self.enter_normal_mode()
-            }
-            KeyCode::Enter => {
-                let InputMode::Command = mem::replace(&mut self.input_mode, InputMode::Normal)
-                else {
-                    unreachable!();
-                };
-                let buffer = mem::take(&mut self.command_buffer);
-                return self.execute_command(&buffer);
-            }
-            KeyCode::Up => {
-                if self.command_history.is_empty() {
-                    return Ok(ControlFlow::Continue(()));
-                }
+        // Try to find a matching action in the keymap
+        if let Some(action) = self.config.keymap.get(&self.input_mode, &key) {
+            return self.perform(*action);
+        }
 
-                match self.command_history_index {
-                    None => {
-                        // Save current buffer and start at the end of history
-                        self.command_history_scratch = mem::take(&mut self.command_buffer);
-                        self.command_history_index = Some(self.command_history.len() - 1);
-                        self.command_buffer =
-                            self.command_history[self.command_history.len() - 1].clone();
-                        self.command_cursor_pos = self.command_buffer.len();
-                    }
-                    Some(idx) if idx > 0 => {
-                        // Go back in history
-                        self.command_history_index = Some(idx - 1);
-                        self.command_buffer = self.command_history[idx - 1].clone();
-                        self.command_cursor_pos = self.command_buffer.len();
-                    }
-                    _ => {}
-                }
-            }
-            KeyCode::Down => {
-                if let Some(idx) = self.command_history_index {
-                    if idx + 1 < self.command_history.len() {
-                        // Go forward in history
-                        self.command_history_index = Some(idx + 1);
-                        self.command_buffer = self.command_history[idx + 1].clone();
-                        self.command_cursor_pos = self.command_buffer.len();
-                    } else {
-                        // At the end, restore scratch
-                        self.command_history_index = None;
-                        self.command_buffer = mem::take(&mut self.command_history_scratch);
-                        self.command_cursor_pos = self.command_buffer.len();
-                    }
-                }
-            }
-            KeyCode::Backspace => {
-                if self.command_cursor_pos > 0 && !self.command_buffer.is_empty() {
-                    self.command_buffer.remove(self.command_cursor_pos - 1);
-                    self.command_cursor_pos -= 1;
-                }
-                self.command_history_index = None;
-            }
-            KeyCode::Delete => {
-                if self.command_cursor_pos < self.command_buffer.len() {
-                    self.command_buffer.remove(self.command_cursor_pos);
-                }
-                self.command_history_index = None;
-            }
-            KeyCode::Left => self.command_cursor_pos = self.command_cursor_pos.saturating_sub(1),
-            KeyCode::Right => {
-                if self.command_cursor_pos < self.command_buffer.len() {
-                    self.command_cursor_pos += 1;
-                }
-            }
-            KeyCode::Home => self.command_cursor_pos = 0,
-            KeyCode::End => self.command_cursor_pos = self.command_buffer.len(),
-            KeyCode::Char(c) => {
+        // If no action is found and this is a printable character, insert it
+        if let KeyCode::Char(c) = key.code() {
+            if !key.modifiers().contains(KeyModifiers::CONTROL)
+                && !key.modifiers().contains(KeyModifiers::ALT)
+            {
                 self.command_buffer.insert(self.command_cursor_pos, c);
                 self.command_cursor_pos += 1;
                 self.command_history_index = None;
             }
-            _ => {}
         }
 
         Ok(ControlFlow::Continue(()))

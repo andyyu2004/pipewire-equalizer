@@ -138,18 +138,19 @@ impl Preset {
                         let frequency = if *bands > 1 {
                             f_min * (f_max / f_min).powf(i as f64 / (n - 1.0))
                         } else {
-                            1000.0 // Default for a single band
+                            1000.0
                         };
 
-                        // Calculate the octave distance between each band
-                        // log2(f_max / f_min) gives total octaves (~9.96 for 20-20k)
-                        let total_octaves = (f_max / f_min).log2();
-                        let octaves_per_band = total_octaves / (n - 1.0);
+                        let q = if *bands == 1 {
+                            1.0
+                        } else {
+                            // Calculate the octave distance between each band
+                            // log2(f_max / f_min) gives total octaves (~9.96 for 20-20k)
+                            let total_octaves = (f_max / f_min).log2();
+                            let bandwidth = total_octaves / (n - 1.0);
 
-                        // Calculate the ideal Q factor for this spacing
-                        // Formula: Q = sqrt(2^bandwidth) / (2^bandwidth - 1)
-                        let bandwidth = octaves_per_band;
-                        let q = 2f64.powf(bandwidth).sqrt() / (2f64.powf(bandwidth) - 1.0);
+                            2f64.powf(bandwidth).sqrt() / (2f64.powf(bandwidth) - 1.0)
+                        };
 
                         Filter {
                             frequency,

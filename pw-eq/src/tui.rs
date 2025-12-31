@@ -625,8 +625,8 @@ where
                 self.input_mode = InputMode::Command { buffer, cursor_pos };
             }
 
-            KeyCode::Tab | KeyCode::Char('j') => self.eq.select_next_band(),
-            KeyCode::BackTab | KeyCode::Char('k') => self.eq.select_prev_band(),
+            KeyCode::Char('j') => self.eq.select_next_band(),
+            KeyCode::Char('k') => self.eq.select_prev_band(),
             KeyCode::Char(c @ '1'..='9') => {
                 let idx = c.to_digit(10).unwrap() as usize - 1;
                 if idx < self.eq.filters.len() {
@@ -646,8 +646,8 @@ where
             KeyCode::Char('p' | '+') => self.eq.adjust_preamp(|p| p + 0.1),
             KeyCode::Char('P' | '-') => self.eq.adjust_preamp(|p| p - 0.1),
 
-            KeyCode::Char('t') => self.eq.cycle_filter_type(Rotation::Clockwise),
-            KeyCode::Char('T') => self.eq.cycle_filter_type(Rotation::CounterClockwise),
+            KeyCode::Tab => self.eq.cycle_filter_type(Rotation::Clockwise),
+            KeyCode::BackTab => self.eq.cycle_filter_type(Rotation::CounterClockwise),
 
             KeyCode::Char('m') => self.eq.toggle_mute(),
 
@@ -949,7 +949,7 @@ where
                 }
                 InputMode::Normal if self.show_help => {
                     Paragraph::new(
-                        "Tab/j/k: select | t: type | m: mute | b: bypass | e: expert | f/F: freq | g/G: gain | q/Q: Q | +/-: preamp | a: add | d: delete | 0: zero | :: command | ?: hide help"
+                        "j/k: select | STab: type | m: mute | b: bypass | e: expert | f/F: freq | g/G: gain | q/Q: Q | +/-: preamp | a: add | d: delete | 0: zero | :: command | ?: hide help"
                     )
                     .style(Style::default().fg(Color::DarkGray))
                 }

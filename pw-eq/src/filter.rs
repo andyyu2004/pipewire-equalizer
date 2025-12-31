@@ -2,6 +2,7 @@ use pw_util::{
     apo,
     module::{BiquadCoefficients, FilterType},
 };
+use std::f64::consts::PI;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Filter {
@@ -54,7 +55,6 @@ impl Filter {
 
         assert!(self.q > 0.0, "Q factor must be positive");
         assert!(self.frequency > 0.0);
-        use std::f64::consts::PI;
 
         let w0 = 2.0 * PI * self.frequency / sample_rate;
         assert!(w0 > 0.0 && w0 < PI, "Frequency must be in (0, Nyquist)");
@@ -153,8 +153,6 @@ impl Filter {
         if self.muted {
             return 0.0;
         }
-
-        use std::f64::consts::PI;
 
         let BiquadCoefficients { b0, b1, b2, a1, a2 } = self.biquad_coeffs(sample_rate);
         let w = 2.0 * PI * freq / sample_rate;

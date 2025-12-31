@@ -1,3 +1,6 @@
+mod action;
+mod eq;
+
 use crate::{FilterId, UpdateFilter, filter::Filter, update_filters, use_eq};
 use std::{
     error::Error,
@@ -15,14 +18,7 @@ use crossterm::{
     terminal::{self, EnterAlternateScreen},
 };
 use futures_util::{Stream, StreamExt as _, future::BoxFuture, stream::FusedStream};
-use pw_util::{
-    apo,
-    module::{
-        self, Control, FilterType, Module, ModuleArgs, NodeKind, ParamEqConfig, ParamEqFilter,
-        RateAndBiquadCoefficients, RawNodeConfig,
-    },
-    pipewire,
-};
+use pw_util::{module::FilterType, pipewire};
 use ratatui::{
     Terminal,
     layout::Direction,
@@ -32,18 +28,20 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table},
 };
-use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::pw::{self, pw_thread};
+
+use self::{action::Action, eq::Eq};
 
 pub enum Format {
     PwParamEq,
     Apo,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 enum Rotation {
     Clockwise,
     CounterClockwise,
@@ -59,298 +57,6 @@ enum ViewMode {
 enum InputMode {
     Normal,
     Command { buffer: String, cursor_pos: usize },
-}
-
-// EQ state
-#[derive(Clone)]
-struct EqState {
-    name: String,
-    filters: Vec<Filter>,
-    selected_band: usize,
-    max_bands: usize,
-    view_mode: ViewMode,
-    preamp: f64, // dB
-    bypassed: bool,
-}
-
-impl EqState {
-    fn with_filters(name: String, filters: impl IntoIterator<Item = Filter>) -> Self {
-        let filters = filters.into_iter().collect::<Vec<_>>();
-        Self {
-            name,
-            // Set initial preamp to max gain among bands to avoid clipping
-            preamp: -filters
-                .iter()
-                .fold(0.0f64, |acc, band| acc.max(band.gain))
-                .max(0.0),
-            filters,
-            selected_band: 0,
-            max_bands: 31,
-            view_mode: ViewMode::Normal,
-            bypassed: false,
-        }
-    }
-
-    fn new(name: String) -> Self {
-        Self::with_filters(
-            name,
-            [
-                Filter {
-                    frequency: 50.0,
-                    filter_type: FilterType::LowShelf,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 100.0,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 200.0,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 500.0,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 2000.0,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 5000.0,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 10000.0,
-                    filter_type: FilterType::HighShelf,
-                    ..Default::default()
-                },
-            ],
-        )
-    }
-
-    fn add_band(&mut self) {
-        if self.filters.len() >= self.max_bands {
-            return;
-        }
-
-        let current_band = &self.filters[self.selected_band];
-
-        // Calculate new frequency between current and next band
-        let new_freq = if self.selected_band + 1 < self.filters.len() {
-            let next_band = &self.filters[self.selected_band + 1];
-            // Geometric mean (better for logarithmic frequency scale)
-            (current_band.frequency * next_band.frequency).sqrt()
-        } else {
-            // If at the end, go halfway to 20kHz in log space
-            (current_band.frequency * 20000.0).sqrt().min(20000.0)
-        };
-
-        let new_filter = Filter {
-            frequency: new_freq,
-            gain: 0.0,
-            q: 1.0,
-            filter_type: FilterType::Peaking,
-            muted: false,
-        };
-
-        self.filters.insert(self.selected_band + 1, new_filter);
-        self.selected_band += 1;
-    }
-
-    fn delete_selected_band(&mut self) {
-        if self.filters.len() > 1 {
-            self.filters.remove(self.selected_band);
-            if self.selected_band >= self.filters.len() {
-                self.selected_band = self.filters.len().saturating_sub(1);
-            }
-        }
-    }
-
-    fn select_next_band(&mut self) {
-        if self.selected_band < self.filters.len().saturating_sub(1) {
-            self.selected_band += 1;
-        }
-    }
-
-    fn select_prev_band(&mut self) {
-        self.selected_band = self.selected_band.saturating_sub(1);
-    }
-
-    fn adjust_freq(&mut self, f: impl FnOnce(f64) -> f64) {
-        if let Some(band) = self.filters.get_mut(self.selected_band) {
-            band.frequency = f(band.frequency).clamp(20.0, 20000.0);
-        }
-    }
-
-    fn adjust_gain(&mut self, f: impl FnOnce(f64) -> f64) {
-        if let Some(band) = self.filters.get_mut(self.selected_band) {
-            band.gain = f(band.gain).clamp(-12.0, 12.0);
-        }
-    }
-
-    fn adjust_q(&mut self, f: impl FnOnce(f64) -> f64) {
-        if let Some(band) = self.filters.get_mut(self.selected_band) {
-            band.q = f(band.q).clamp(0.001, 10.0);
-        }
-    }
-
-    fn cycle_filter_type(&mut self, rotation: Rotation) {
-        let types = FilterType::iter().collect::<Vec<_>>();
-        if let Some(band) = self.filters.get_mut(self.selected_band) {
-            let idx = types
-                .iter()
-                .position(|&t| t == band.filter_type)
-                .expect("filter type must exist in enum");
-
-            band.filter_type = match rotation {
-                Rotation::Clockwise => types[(idx + 1) % types.len()],
-                Rotation::CounterClockwise => types[(idx + types.len() - 1) % types.len()],
-            };
-        }
-    }
-
-    fn toggle_mute(&mut self) {
-        if let Some(band) = self.filters.get_mut(self.selected_band) {
-            band.muted = !band.muted;
-        }
-    }
-
-    fn toggle_view_mode(&mut self) {
-        self.view_mode = match self.view_mode {
-            ViewMode::Normal => ViewMode::Expert,
-            ViewMode::Expert => ViewMode::Normal,
-        };
-    }
-
-    fn adjust_preamp(&mut self, f: impl FnOnce(f64) -> f64) {
-        self.preamp = f(self.preamp).clamp(-12.0, 12.0);
-    }
-
-    fn toggle_bypass(&mut self) {
-        self.bypassed = !self.bypassed;
-    }
-
-    fn to_module_args(&self, rate: u32) -> ModuleArgs {
-        Module::from_kinds(
-            &format!("{}-{}", self.name, self.filters.len()),
-            self.preamp,
-            self.filters.iter().map(|band| NodeKind::Raw {
-                config: RawNodeConfig {
-                    coefficients: vec![RateAndBiquadCoefficients {
-                        rate,
-                        coefficients: band.biquad_coeffs(rate as f64),
-                    }],
-                },
-            }),
-        )
-        .args
-    }
-
-    /// Save current EQ configuration to a PipeWire filter-chain config file using param_eq
-    async fn save_config(
-        &self,
-        path: impl AsRef<std::path::Path>,
-        format: Format,
-    ) -> anyhow::Result<()> {
-        let data = match format {
-            Format::PwParamEq => {
-                let config = module::Config::from_kinds(
-                    &self.name,
-                    self.preamp,
-                    [NodeKind::ParamEq {
-                        config: ParamEqConfig {
-                            filters: self
-                                .filters
-                                .iter()
-                                .map(|band| ParamEqFilter {
-                                    ty: band.filter_type,
-                                    control: Control {
-                                        freq: band.frequency,
-                                        q: band.q,
-                                        gain: band.gain,
-                                    },
-                                })
-                                .collect(),
-                        },
-                    }],
-                );
-
-                pw_util::to_spa_json(&config)
-            }
-            Format::Apo => apo::Config {
-                preamp: self.preamp,
-                filters: self
-                    .filters
-                    .iter()
-                    .enumerate()
-                    .map(|(i, filter)| apo::Filter {
-                        number: (i + 1) as u32,
-                        enabled: !filter.muted,
-                        filter_type: filter.filter_type,
-                        frequency: filter.frequency,
-                        gain: filter.gain,
-                        q: filter.q,
-                    })
-                    .collect(),
-            }
-            .to_string(),
-        };
-
-        tokio::fs::write(path, data).await?;
-
-        Ok(())
-    }
-
-    /// Build update for preamp
-    fn build_preamp_update(&self) -> UpdateFilter {
-        UpdateFilter {
-            frequency: None,
-            gain: Some(self.preamp),
-            q: None,
-            coeffs: None,
-        }
-    }
-
-    fn build_filter_update(&self, filter_idx: usize, sample_rate: u32) -> UpdateFilter {
-        // Locally copy the band to modify muted state based on bypass
-        // This is necessary to get the correct biquad coefficients
-        let mut band = self.filters[filter_idx];
-        band.muted |= self.bypassed;
-        let gain = if band.muted { 0.0 } else { band.gain };
-
-        UpdateFilter {
-            frequency: Some(band.frequency),
-            gain: Some(gain),
-            q: Some(band.q),
-            coeffs: Some(band.biquad_coeffs(sample_rate as f64)),
-        }
-    }
-
-    /// Generate frequency response curve data for visualization
-    /// Returns Vec of (frequency, magnitude_db) pairs
-    fn frequency_response_curve(&self, num_points: usize, sample_rate: f64) -> Vec<(f64, f64)> {
-        // Generate logarithmically spaced frequency points from 20 Hz to 20 kHz
-        let log_min = 20_f64.log10();
-        let log_max = 20000_f64.log10();
-
-        (0..num_points)
-            .map(|i| {
-                let t = i as f64 / (num_points - 1) as f64;
-                let log_freq = log_min + t * (log_max - log_min);
-                let freq = 10_f64.powf(log_freq);
-
-                // Sum magnitude response from all bands
-                let total_db: f64 = self
-                    .filters
-                    .iter()
-                    .map(|band| band.magnitude_db_at(freq, sample_rate))
-                    .sum();
-
-                (freq, total_db)
-            })
-            .collect()
-    }
 }
 
 pub enum Notif {
@@ -372,7 +78,7 @@ pub struct App<B: Backend + io::Write> {
     tasks: Pin<Box<dyn FusedStream<Item = TaskResult> + Send>>,
     task_tx: mpsc::Sender<Task>,
     pw_tx: pipewire::channel::Sender<pw::Message>,
-    eq: EqState,
+    eq: Eq,
     active_node_id: Option<u32>,
     original_default_sink: Option<u32>,
     pw_handle: Option<std::thread::JoinHandle<io::Result<()>>>,
@@ -383,6 +89,7 @@ pub struct App<B: Backend + io::Write> {
     command_history_scratch: String,
     show_help: bool,
     status: Option<Result<String, String>>,
+    view_mode: ViewMode,
 }
 
 impl<B> App<B>
@@ -399,10 +106,10 @@ where
         let tasks = Box::pin(ReceiverStream::new(task_rx).buffered(8));
 
         let filters = filters.into_iter().collect::<Vec<_>>();
-        let eq_state = if !filters.is_empty() {
-            EqState::with_filters("pweq".to_string(), filters)
+        let eq = if !filters.is_empty() {
+            Eq::with_filters("pweq".to_string(), filters)
         } else {
-            EqState::new("pweq".to_string())
+            Eq::new("pweq".to_string())
         };
 
         Ok(Self {
@@ -411,7 +118,7 @@ where
             notifs,
             tasks,
             task_tx,
-            eq: eq_state,
+            eq,
             active_node_id: None,
             original_default_sink: None,
             pw_handle: Some(pw_handle),
@@ -422,6 +129,7 @@ where
             command_history_index: None,
             command_history_scratch: String::new(),
             show_help: false,
+            view_mode: ViewMode::Normal,
             status: None,
         })
     }
@@ -604,8 +312,8 @@ where
 
     fn handle_normal_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
         assert!(matches!(self.input_mode, InputMode::Normal));
-        let before_idx = self.eq.selected_band;
-        let before_band = self.eq.filters[self.eq.selected_band];
+        let before_idx = self.eq.selected_idx;
+        let before_filter = self.eq.filters[self.eq.selected_idx];
         let before_preamp = self.eq.preamp;
         let before_bypass = self.eq.bypassed;
         let before_filter_count = self.eq.filters.len();
@@ -627,12 +335,12 @@ where
                 self.input_mode = InputMode::Command { buffer, cursor_pos };
             }
 
-            KeyCode::Char('j') => self.eq.select_next_band(),
-            KeyCode::Char('k') => self.eq.select_prev_band(),
+            KeyCode::Char('j') => self.eq.select_next_filter(),
+            KeyCode::Char('k') => self.eq.select_prev_filter(),
             KeyCode::Char(c @ '1'..='9') => {
                 let idx = c.to_digit(10).unwrap() as usize - 1;
                 if idx < self.eq.filters.len() {
-                    self.eq.selected_band = idx;
+                    self.eq.selected_idx = idx;
                 }
             }
 
@@ -659,17 +367,17 @@ where
 
             KeyCode::Char('m') => self.eq.toggle_mute(),
 
-            KeyCode::Char('x') => self.eq.toggle_view_mode(),
+            KeyCode::Char('v') => self.cycle_view_mode(Rotation::Clockwise),
 
             KeyCode::Char('b') => self.eq.toggle_bypass(),
 
             // Band management
-            KeyCode::Char('a') => self.eq.add_band(),
-            KeyCode::Char('d') => self.eq.delete_selected_band(),
+            KeyCode::Char('a') => self.eq.add_filter(),
+            KeyCode::Char('d') => self.eq.delete_selected_filter(),
             KeyCode::Char('0') => {
                 // Zero the gain on current band
-                if let Some(band) = self.eq.filters.get_mut(self.eq.selected_band) {
-                    band.gain = 0.0;
+                if let Some(filter) = self.eq.filters.get_mut(self.eq.selected_idx) {
+                    filter.gain = 0.0;
                 }
             }
 
@@ -681,10 +389,10 @@ where
                 self.sync_preamp(node_id);
             }
 
-            if self.eq.selected_band == before_idx
-                && self.eq.filters[self.eq.selected_band] != before_band
+            if self.eq.selected_idx == before_idx
+                && self.eq.filters[self.eq.selected_idx] != before_filter
             {
-                self.sync_filter(node_id, self.eq.selected_band, self.sample_rate);
+                self.sync_filter(node_id, self.eq.selected_idx, self.sample_rate);
             }
 
             if before_bypass != self.eq.bypassed {
@@ -703,6 +411,41 @@ where
                 "Reloading pipewire module"
             );
             self.load_module();
+        }
+
+        Ok(ControlFlow::Continue(()))
+    }
+
+    fn cycle_view_mode(&mut self, _rotation: Rotation) {
+        self.view_mode = match self.view_mode {
+            ViewMode::Normal => ViewMode::Expert,
+            ViewMode::Expert => ViewMode::Normal,
+        };
+    }
+
+    #[allow(dead_code)]
+    fn perform(&mut self, action: Action) -> io::Result<ControlFlow<()>> {
+        match action {
+            Action::ClearStatus => self.status = None,
+            Action::ToggleHelp => self.show_help = !self.show_help,
+            Action::Quit => return Ok(ControlFlow::Break(())),
+            Action::SelectNext => self.eq.select_next_filter(),
+            Action::SelectPrevious => self.eq.select_prev_filter(),
+            Action::AddFilter => self.eq.add_filter(),
+            Action::RemoveFilter => self.eq.delete_selected_filter(),
+            Action::SelectIndex(idx) => {
+                if idx < self.eq.filters.len() {
+                    self.eq.selected_idx = idx;
+                }
+            }
+            Action::AdjustFrequency { multiplier } => self.eq.adjust_freq(|f| f * multiplier),
+            Action::AdjustGain { delta } => self.eq.adjust_gain(|g| g + delta),
+            Action::AdjustQ { delta } => self.eq.adjust_q(|q| q + delta),
+            Action::AdjustPreamp { delta } => self.eq.adjust_preamp(|p| p + delta),
+            Action::CycleFilterType { rotation } => self.eq.cycle_filter_type(rotation),
+            Action::ToggleBypass => self.eq.toggle_bypass(),
+            Action::ToggleMute => self.eq.toggle_mute(),
+            Action::CycleViewMode { rotation } => self.cycle_view_mode(rotation),
         }
 
         Ok(ControlFlow::Continue(()))
@@ -894,6 +637,7 @@ where
     fn draw(&mut self) -> anyhow::Result<()> {
         let eq_state = &self.eq;
         let sample_rate = self.sample_rate;
+        let view_mode = self.view_mode;
         self.term.draw(|f| {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -919,7 +663,7 @@ where
                     "PipeWire EQ: {} | Bands: {}/{} | Sample Rate: {:.0} Hz | Preamp: ",
                     eq_state.name,
                     eq_state.filters.len(),
-                    eq_state.max_bands,
+                    eq_state.max_filters,
                     sample_rate
                 )),
                 Span::styled(
@@ -940,7 +684,7 @@ where
             f.render_widget(header, chunks[0]);
 
             // Band table
-            Self::draw_band_table(f, chunks[1], eq_state, sample_rate);
+            Self::draw_idx_table(f, chunks[1], eq_state, view_mode, sample_rate);
 
             // Frequency response chart
             Self::draw_frequency_response(f, chunks[2], eq_state, sample_rate);
@@ -977,7 +721,13 @@ where
         Ok(())
     }
 
-    fn draw_band_table(f: &mut ratatui::Frame, area: Rect, eq_state: &EqState, sample_rate: u32) {
+    fn draw_idx_table(
+        f: &mut ratatui::Frame,
+        area: Rect,
+        eq_state: &Eq,
+        view_mode: ViewMode,
+        sample_rate: u32,
+    ) {
         let rows: Vec<Row> = eq_state
             .filters
             .iter()
@@ -1004,7 +754,7 @@ where
                     Color::Gray
                 };
 
-                let is_selected = idx == eq_state.selected_band;
+                let is_selected = idx == eq_state.selected_idx;
                 let is_dimmed = band.muted || eq_state.bypassed;
 
                 // Dim muted or bypassed filters
@@ -1081,7 +831,7 @@ where
                 ];
 
                 // Add biquad coefficients in expert mode
-                if matches!(eq_state.view_mode, ViewMode::Expert) {
+                if matches!(view_mode, ViewMode::Expert) {
                     let coeffs = band.biquad_coeffs(sample_rate as f64);
                     cells.extend([
                         Cell::from(format!("{:.6}", coeffs.b0))
@@ -1101,7 +851,7 @@ where
             })
             .collect();
 
-        let (constraints, header_cells, title) = match eq_state.view_mode {
+        let (constraints, header_cells, title) = match view_mode {
             ViewMode::Normal => (
                 vec![
                     Constraint::Length(3), // #
@@ -1157,16 +907,11 @@ where
         f.render_widget(table, area);
     }
 
-    fn draw_frequency_response(
-        f: &mut ratatui::Frame,
-        area: Rect,
-        eq_state: &EqState,
-        sample_rate: u32,
-    ) {
+    fn draw_frequency_response(f: &mut ratatui::Frame, area: Rect, eq: &Eq, sample_rate: u32) {
         const NUM_POINTS: usize = 200;
 
         // Generate frequency response curve data
-        let curve_data = eq_state.frequency_response_curve(NUM_POINTS, sample_rate as f64);
+        let curve_data = eq.frequency_response_curve(NUM_POINTS, sample_rate as f64);
 
         // Convert to chart data format (log x-axis manually handled via data)
         let data: Vec<(f64, f64)> = curve_data

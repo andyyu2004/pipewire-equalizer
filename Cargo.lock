@@ -799,6 +799,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "keymap"
+version = "0.1.0"
+
+[[package]]
 name = "lab"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1309,8 +1313,10 @@ dependencies = [
  "crossterm",
  "dirs",
  "futures-util",
+ "keymap",
  "pw-util",
  "ratatui",
+ "serde",
  "serde_json",
  "shellexpand",
  "shellish_parse",

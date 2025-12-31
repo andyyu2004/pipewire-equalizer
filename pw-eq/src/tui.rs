@@ -408,6 +408,9 @@ pub struct App<B: Backend + io::Write> {
     pw_handle: Option<std::thread::JoinHandle<io::Result<()>>>,
     sample_rate: u32,
     input_mode: InputMode,
+    command_history: Vec<String>,
+    command_history_index: Option<usize>,
+    command_history_scratch: String,
     show_help: bool,
     status_error: Option<String>,
 }
@@ -445,6 +448,9 @@ where
             // TODO query
             sample_rate: 48000,
             input_mode: InputMode::Normal,
+            command_history: Vec::new(),
+            command_history_index: None,
+            command_history_scratch: String::new(),
             show_help: false,
             status_error: None,
         })
@@ -680,6 +686,8 @@ where
             buffer: String::new(),
             cursor_pos: 0,
         };
+        self.command_history_index = None;
+        self.command_history_scratch.clear();
         self.status_error = None;
     }
 
@@ -701,14 +709,55 @@ where
                 };
                 return self.execute_command(&buffer);
             }
+            KeyCode::Up => {
+                if self.command_history.is_empty() {
+                    return Ok(ControlFlow::Continue(()));
+                }
+
+                match self.command_history_index {
+                    None => {
+                        // Save current buffer and start at the end of history
+                        self.command_history_scratch = buffer.clone();
+                        self.command_history_index = Some(self.command_history.len() - 1);
+                        *buffer = self.command_history[self.command_history.len() - 1].clone();
+                        *cursor_pos = buffer.len();
+                    }
+                    Some(idx) if idx > 0 => {
+                        // Go back in history
+                        self.command_history_index = Some(idx - 1);
+                        *buffer = self.command_history[idx - 1].clone();
+                        *cursor_pos = buffer.len();
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Down => {
+                if let Some(idx) = self.command_history_index {
+                    if idx + 1 < self.command_history.len() {
+                        // Go forward in history
+                        self.command_history_index = Some(idx + 1);
+                        *buffer = self.command_history[idx + 1].clone();
+                        *cursor_pos = buffer.len();
+                    } else {
+                        // At the end, restore scratch
+                        self.command_history_index = None;
+                        *buffer = mem::take(&mut self.command_history_scratch);
+                        *cursor_pos = buffer.len();
+                    }
+                }
+            }
             KeyCode::Backspace => {
                 if *cursor_pos > 0 {
                     buffer.remove(*cursor_pos - 1);
                     *cursor_pos -= 1;
                 }
+                self.command_history_index = None;
             }
             KeyCode::Delete => {
-                buffer.remove(*cursor_pos);
+                if *cursor_pos < buffer.len() {
+                    buffer.remove(*cursor_pos);
+                }
+                self.command_history_index = None;
             }
             KeyCode::Left => *cursor_pos = cursor_pos.saturating_sub(1),
             KeyCode::Right => *cursor_pos = (*cursor_pos + 1).min(buffer.len()),
@@ -717,6 +766,7 @@ where
             KeyCode::Char(c) => {
                 buffer.insert(*cursor_pos, c);
                 *cursor_pos += 1;
+                self.command_history_index = None;
             }
             _ => {}
         }
@@ -725,14 +775,39 @@ where
     }
 
     fn execute_command(&mut self, cmd: &str) -> io::Result<ControlFlow<()>> {
-        let cmd = shellexpand::full(cmd).map_err(io::Error::other)?;
-        let words = match shellish_parse::parse(&cmd, true) {
+        let mut cmd = cmd;
+
+        // Special handling for '!!' to repeat last command with force
+        let add_force = if cmd == "!!" {
+            if let Some(last_cmd) = self.command_history.last() {
+                cmd = last_cmd;
+                true
+            } else {
+                self.status_error = Some("no previous command".to_string());
+                return Ok(ControlFlow::Continue(()));
+            }
+        } else {
+            // Add to history if non-empty and not a duplicate of the last command
+            if !cmd.is_empty() && self.command_history.last().is_none_or(|last| last != cmd) {
+                self.command_history.push(cmd.to_string());
+            }
+
+            false
+        };
+
+        let cmd = shellexpand::full(&cmd).map_err(io::Error::other)?;
+        let mut words = match shellish_parse::parse(&cmd, true) {
             Ok(words) => words,
             Err(err) => {
                 self.status_error = Some(format!("command parse error: {err}"));
                 return Ok(ControlFlow::Continue(()));
             }
         };
+
+        // Append '!' to the first word
+        if add_force && let Some(first) = words.get_mut(0) {
+            first.push('!');
+        }
 
         let words = words.iter().map(|s| s.as_str()).collect::<Vec<_>>();
 
@@ -769,15 +844,13 @@ where
                                 tracing::info!(path = %path.display(), "EQ configuration saved")
                             }
                             Err(err) => {
-                                tracing::error!(error = %err, "failed to save EQ configuration");
+                                tracing::error!(error = %err, "failed to save EQ configuration")
                             }
                         }
                     }
                 });
             }
-            _ => {
-                self.status_error = Some(format!("unknown command: {cmd}"));
-            }
+            _ => self.status_error = Some(format!("unknown command: {cmd}")),
         }
 
         Ok(ControlFlow::Continue(()))

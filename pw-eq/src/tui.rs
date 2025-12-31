@@ -713,7 +713,8 @@ where
 
         match &words[..] {
             ["q" | "quit"] => return Ok(ControlFlow::Break(())),
-            ["w" | "write", args @ ..] => {
+            [cmd @ ("w" | "write" | "w!" | "write!"), args @ ..] => {
+                let force = cmd.ends_with('!');
                 let path = match args {
                     [path] => PathBuf::from(path),
                     _ => {
@@ -726,6 +727,14 @@ where
                     Some(ext) if ext == "apo" => Format::Apo,
                     _ => Format::PwParamEq,
                 };
+
+                if path.exists() && !force {
+                    self.status_error = Some(format!(
+                        "file {} already exists (use ! to overwrite)",
+                        path.display()
+                    ));
+                    return Ok(ControlFlow::Continue(()));
+                }
 
                 tokio::spawn({
                     let eq_state = self.eq_state.clone();

@@ -83,7 +83,7 @@ pub trait Read<'de>: private::Sealed {
     /// truncating their input slice to avoid the extra check on every next
     /// call.
     #[doc(hidden)]
-    const should_early_return_if_failed: bool;
+    const SHOULD_RETURN_EARLY_IF_FAILED: bool;
 
     /// Mark a persistent failure of StreamDeserializer, either by setting the
     /// flag or by truncating the input data.
@@ -312,7 +312,7 @@ where
         }
     }
 
-    const should_early_return_if_failed: bool = true;
+    const SHOULD_RETURN_EARLY_IF_FAILED: bool = true;
 
     #[inline]
     #[cold]
@@ -542,7 +542,7 @@ impl<'a> Read<'a> for SliceRead<'a> {
         }
     }
 
-    const should_early_return_if_failed: bool = false;
+    const SHOULD_RETURN_EARLY_IF_FAILED: bool = false;
 
     #[inline]
     #[cold]
@@ -616,7 +616,7 @@ impl<'a> Read<'a> for StrRead<'a> {
         self.delegate.decode_hex_escape()
     }
 
-    const should_early_return_if_failed: bool = false;
+    const SHOULD_RETURN_EARLY_IF_FAILED: bool = false;
 
     #[inline]
     #[cold]
@@ -676,7 +676,7 @@ where
         R::decode_hex_escape(self)
     }
 
-    const should_early_return_if_failed: bool = R::should_early_return_if_failed;
+    const SHOULD_RETURN_EARLY_IF_FAILED: bool = R::SHOULD_RETURN_EARLY_IF_FAILED;
 
     fn set_failed(&mut self, failed: &mut bool) {
         R::set_failed(self, failed);

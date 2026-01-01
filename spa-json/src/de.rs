@@ -14,7 +14,7 @@ use std::io;
 use std::string::String;
 use std::vec::Vec;
 
-pub use crate::read::Read;
+pub use crate::read::{Read, SliceRead, StrRead};
 
 /// A structure that deserializes JSON into Rust values.
 pub struct Deserializer<R> {
@@ -2011,7 +2011,7 @@ where
     type Item = Result<T>;
 
     fn next(&mut self) -> Option<Result<T>> {
-        if R::should_early_return_if_failed && self.failed {
+        if R::SHOULD_RETURN_EARLY_IF_FAILED && self.failed {
             return None;
         }
 

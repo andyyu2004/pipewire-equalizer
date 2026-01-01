@@ -14,7 +14,7 @@ use std::io;
 use std::string::String;
 use std::vec::Vec;
 
-pub use crate::read::{Read, SliceRead, StrRead};
+pub use crate::read::Read;
 
 /// A structure that deserializes JSON into Rust values.
 pub struct Deserializer<R> {
@@ -2027,10 +2027,7 @@ where
                 // If the value does not have a clear way to show the end of the value
                 // (like numbers, null, true etc.) we have to look for whitespace or
                 // the beginning of a self-delineated value.
-                let self_delineated_value = match b {
-                    b'[' | b'"' | b'{' => true,
-                    _ => false,
-                };
+                let self_delineated_value = matches!(b, b'[' | b'"' | b'{');
                 self.offset = self.de.read.byte_offset();
                 let result = de::Deserialize::deserialize(&mut self.de);
 

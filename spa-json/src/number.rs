@@ -3,7 +3,7 @@ use crate::error::Error;
 use core::fmt;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
-    de::{self, Unexpected, Visitor},
+    de::{self, Visitor},
     forward_to_deserialize_any,
 };
 use std::hash::{Hash, Hasher};
@@ -221,14 +221,6 @@ impl Number {
             }
         };
         Some(Number { n })
-    }
-
-    pub(crate) fn as_f32(&self) -> Option<f32> {
-        match self.n {
-            N::PosInt(n) => Some(n as f32),
-            N::NegInt(n) => Some(n as f32),
-            N::Float(n) => Some(n as f32),
-        }
     }
 
     pub(crate) fn from_f32(f: f32) -> Option<Number> {
@@ -452,14 +444,3 @@ macro_rules! impl_from_signed {
 
 impl_from_unsigned!(u8, u16, u32, u64, usize);
 impl_from_signed!(i8, i16, i32, i64, isize);
-
-impl Number {
-    #[cold]
-    pub(crate) fn unexpected(&self) -> Unexpected<'_> {
-        match self.n {
-            N::PosInt(u) => Unexpected::Unsigned(u),
-            N::NegInt(i) => Unexpected::Signed(i),
-            N::Float(f) => Unexpected::Float(f),
-        }
-    }
-}

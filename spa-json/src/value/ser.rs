@@ -243,9 +243,9 @@ impl serde::Serializer for Serializer {
         })
     }
 
-    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap> {
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap> {
         Ok(SerializeMap::Map {
-            map: Map::with_capacity(len.unwrap_or(0)),
+            map: Default::default(),
             next_key: None,
         })
     }

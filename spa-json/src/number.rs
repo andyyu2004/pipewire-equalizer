@@ -411,7 +411,6 @@ impl From<ParserNumber> for Number {
             ParserNumber::F64(f) => N::Float(f),
             ParserNumber::U64(u) => N::PosInt(u),
             ParserNumber::I64(i) => N::NegInt(i),
-            ParserNumber::String(s) => s,
         };
         Number { n }
     }

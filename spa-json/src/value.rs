@@ -23,13 +23,13 @@ impl From<bool> for Value {
 
 impl From<f32> for Value {
     fn from(value: f32) -> Self {
-        Value::Number(Number::from(value))
+        Number::from_f32(value).map_or(Value::Null, Value::Number)
     }
 }
 
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
-        Value::Number(Number::from(value))
+        Number::from_f64(value).map_or(Value::Null, Value::Number)
     }
 }
 

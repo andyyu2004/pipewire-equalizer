@@ -1824,6 +1824,7 @@ version = "0.1.0"
 dependencies = [
  "itoa",
  "libspa-sys",
+ "memchr",
  "ryu",
  "serde",
 ]

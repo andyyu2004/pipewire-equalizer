@@ -9,6 +9,7 @@ use pw_util::apo::{self, FilterType};
 use pw_util::module::FILTER_PREFIX;
 use std::collections::BTreeMap;
 use std::fs::File;
+use std::io::BufReader;
 use std::path::PathBuf;
 use std::str::FromStr;
 use tabled::Table;
@@ -287,7 +288,9 @@ async fn run_tui(args: TuiArgs) -> anyhow::Result<()> {
             "loading user configuration",
         );
         let file = fs::File::open(user_config_path).await?;
-        let config = serde_json::from_reader::<_, tui::Config>(file.try_into_std().unwrap())?;
+        let config = serde_json::from_reader::<_, tui::Config>(BufReader::new(
+            file.try_into_std().unwrap(),
+        ))?;
         base_config.merge(config)
     } else {
         base_config

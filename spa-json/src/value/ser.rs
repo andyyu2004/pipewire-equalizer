@@ -414,7 +414,7 @@ fn key_must_be_a_string() -> Error {
 }
 
 fn float_key_must_be_finite() -> Error {
-    Error::syntax(ErrorCode::FloatMustBeFinite, 0, 0)
+    Error::syntax(ErrorCode::FloatKeyMustBeFinite, 0, 0)
 }
 
 impl serde::Serializer for MapKeySerializer {

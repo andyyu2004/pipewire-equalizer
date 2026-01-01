@@ -2,9 +2,10 @@ use crate::{Error, Map, number::Number};
 
 use self::ser::Serializer;
 
+pub mod de;
 pub mod ser;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub enum Value {
     Null,
     Bool(bool),

@@ -3,7 +3,7 @@ use crate::error::Error;
 use core::fmt;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
-    de::{self, Visitor},
+    de::{self, Unexpected, Visitor},
     forward_to_deserialize_any,
 };
 use std::hash::{Hash, Hasher};
@@ -444,3 +444,14 @@ macro_rules! impl_from_signed {
 
 impl_from_unsigned!(u8, u16, u32, u64, usize);
 impl_from_signed!(i8, i16, i32, i64, isize);
+
+impl Number {
+    #[cold]
+    pub(crate) fn unexpected(&self) -> Unexpected {
+        match self.n {
+            N::PosInt(u) => Unexpected::Unsigned(u),
+            N::NegInt(i) => Unexpected::Signed(i),
+            N::Float(f) => Unexpected::Float(f),
+        }
+    }
+}

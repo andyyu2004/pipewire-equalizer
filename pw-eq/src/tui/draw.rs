@@ -1,4 +1,4 @@
-use super::{App, Eq, InputMode, ViewMode};
+use super::{App, Eq, InputMode, ViewMode, theme::Theme};
 use pw_util::module::FilterType;
 use ratatui::{
     layout::Direction,
@@ -19,6 +19,7 @@ where
         let eq = &self.eq;
         let sample_rate = self.sample_rate;
         let view_mode = self.view_mode;
+        let theme = &self.config.theme;
 
         let help_text = if self.show_help {
             self.generate_help_text()
@@ -27,6 +28,11 @@ where
         };
 
         self.term.draw(|f| {
+            // Set background color for the entire frame
+            f.render_widget(
+                Block::default().style(Style::default().bg(theme.background)),
+                f.area(),
+            );
             // Calculate footer height dynamically based on help text length
             let footer_height = if self.show_help {
                 let terminal_width = f.area().width as usize;
@@ -42,9 +48,9 @@ where
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3),      // Header
-                    Constraint::Min(10),        // Band table
-                    Constraint::Percentage(40), // Frequency response chart
+                    Constraint::Length(3),             // Header
+                    Constraint::Min(10),               // Band table
+                    Constraint::Percentage(40),        // Frequency response chart
                     Constraint::Length(footer_height), // Footer
                 ])
                 .split(f.area());
@@ -84,9 +90,9 @@ where
                 .block(Block::default().borders(Borders::ALL));
             f.render_widget(header, chunks[0]);
 
-            draw_filters_table(f, chunks[1], eq, view_mode, sample_rate);
+            draw_filters_table(f, chunks[1], eq, view_mode, sample_rate, theme);
 
-            draw_frequency_response(f, chunks[2], eq, sample_rate);
+            draw_frequency_response(f, chunks[2], eq, sample_rate, theme);
 
             let footer = match &self.input_mode {
                 InputMode::Command => Paragraph::new(format!(":{}", self.command_buffer)),
@@ -97,11 +103,9 @@ where
                     };
                     Paragraph::new(msg).style(Style::default().fg(color))
                 }
-                InputMode::Normal if self.show_help => {
-                    Paragraph::new(help_text)
-                        .style(Style::default().fg(Color::DarkGray))
-                        .wrap(Wrap { trim: true })
-                }
+                InputMode::Normal if self.show_help => Paragraph::new(help_text)
+                    .style(Style::default().fg(Color::DarkGray))
+                    .wrap(Wrap { trim: true }),
                 InputMode::Normal => {
                     Paragraph::new("Press ? for help").style(Style::default().fg(Color::DarkGray))
                 }
@@ -125,6 +129,7 @@ fn draw_filters_table(
     eq_state: &Eq,
     view_mode: ViewMode,
     sample_rate: u32,
+    theme: &Theme,
 ) {
     let rows: Vec<Row> = eq_state
         .filters
@@ -144,43 +149,37 @@ fn draw_filters_table(
                 FilterType::HighShelf => "HSC",
             };
 
+            // Use theme colors for gain
             let gain_color = if band.gain > 0.05 {
-                Color::Green
+                theme.gain_positive
             } else if band.gain < -0.05 {
-                Color::Red
+                theme.gain_negative
             } else {
-                Color::Gray
+                theme.gain_neutral
             };
 
             let is_selected = idx == eq_state.selected_idx;
             let is_dimmed = band.muted || eq_state.bypassed;
 
-            // Dim muted or bypassed filters
+            // Use theme color scheme
             let (num_color, type_color, freq_color, q_color) = if is_dimmed {
-                (
-                    Color::DarkGray,
-                    Color::DarkGray,
-                    Color::DarkGray,
-                    Color::DarkGray,
-                )
-            } else if is_selected {
-                (Color::Yellow, Color::Blue, Color::Cyan, Color::Magenta)
+                let dimmed = theme.dimmed;
+                (dimmed, dimmed, dimmed, dimmed)
             } else {
-                (Color::DarkGray, Color::Gray, Color::White, Color::White)
+                (
+                    theme.index,
+                    theme.filter_type,
+                    theme.frequency,
+                    theme.q_value,
+                )
             };
 
-            let final_gain_color = if is_dimmed {
-                Color::DarkGray
-            } else {
-                gain_color
-            };
+            let final_gain_color = if is_dimmed { theme.dimmed } else { gain_color };
 
             let coeff_color = if is_dimmed {
-                Color::DarkGray
-            } else if is_selected {
-                Color::Green
+                theme.dimmed
             } else {
-                Color::Gray
+                theme.coefficients
             };
 
             // Create base cells
@@ -250,7 +249,12 @@ fn draw_filters_table(
                 );
             }
 
-            Row::new(cells)
+            let row = Row::new(cells);
+            if is_selected {
+                row.style(Style::default().bg(theme.selected_row))
+            } else {
+                row
+            }
         })
         .collect();
 
@@ -307,7 +311,13 @@ fn draw_filters_table(
     f.render_widget(table, area);
 }
 
-fn draw_frequency_response(f: &mut ratatui::Frame, area: Rect, eq: &Eq, sample_rate: u32) {
+fn draw_frequency_response(
+    f: &mut ratatui::Frame,
+    area: Rect,
+    eq: &Eq,
+    sample_rate: u32,
+    theme: &Theme,
+) {
     const NUM_POINTS: usize = 200;
 
     // Generate frequency response curve data
@@ -335,7 +345,7 @@ fn draw_frequency_response(f: &mut ratatui::Frame, area: Rect, eq: &Eq, sample_r
     let dataset = Dataset::default()
         .marker(Marker::Braille)
         .graph_type(GraphType::Line)
-        .style(Style::default().fg(Color::Cyan))
+        .style(Style::default().fg(theme.chart))
         .data(&data);
 
     // X-axis: log scale from 20 Hz to 20 kHz
@@ -360,6 +370,7 @@ fn draw_frequency_response(f: &mut ratatui::Frame, area: Rect, eq: &Eq, sample_r
         ]);
 
     let chart = Chart::new(vec![dataset])
+        .style(Style::default().bg(theme.background))
         .block(Block::default().borders(Borders::ALL))
         .x_axis(x_axis)
         .y_axis(y_axis);

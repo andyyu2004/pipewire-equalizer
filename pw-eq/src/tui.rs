@@ -1,6 +1,7 @@
 mod action;
 mod draw;
 mod eq;
+mod theme;
 
 use crate::{FilterId, UpdateFilter, filter::Filter, update_filters, use_eq};
 use std::collections::HashMap;
@@ -29,7 +30,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::pw::{self, pw_thread};
 
-use self::{action::Action, eq::Eq};
+use self::{action::Action, eq::Eq, theme::Theme};
 
 pub enum Format {
     PwParamEq,
@@ -107,9 +108,12 @@ pub struct App<B: Backend + io::Write> {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Config {
     keymap: KeyMap<InputMode, zi_input::KeyEvent, Action>,
+    pub(super) theme: Theme,
 }
+
 impl Config {
     /// Right-biased in-place merge of two configs
     pub fn merge(mut self, config: Config) -> Self {
@@ -118,6 +122,7 @@ impl Config {
         // Written in this way to make sure we don't forget to merge new fields later
         Self {
             keymap: self.keymap,
+            theme: config.theme,
         }
     }
 }
@@ -125,6 +130,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            theme: Theme::default(),
             keymap: serde_json::from_value(serde_json::json!({
                 "normal": {
                     "<C-c>":     "quit",

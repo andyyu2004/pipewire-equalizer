@@ -59,9 +59,6 @@ pub(crate) enum ErrorCode {
     /// Expected this character to be a `':'`.
     ExpectedColon,
 
-    /// Expected this character to be either a `','` or a `'}'`.
-    ExpectedObjectCommaOrEnd,
-
     /// Expected to parse either a `true`, `false`, or a `null`.
     ExpectedSomeIdent,
 
@@ -180,7 +177,6 @@ impl fmt::Display for ErrorCode {
             ErrorCode::EofWhileParsingString => f.write_str("EOF while parsing a string"),
             ErrorCode::EofWhileParsingValue => f.write_str("EOF while parsing a value"),
             ErrorCode::ExpectedColon => f.write_str("expected `:`"),
-            ErrorCode::ExpectedObjectCommaOrEnd => f.write_str("expected `,` or `}`"),
             ErrorCode::ExpectedSomeIdent => f.write_str("expected ident"),
             ErrorCode::ExpectedSomeValue => f.write_str("expected value"),
             ErrorCode::ExpectedDoubleQuote => f.write_str("expected `\"`"),

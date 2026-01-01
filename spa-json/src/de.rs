@@ -1375,12 +1375,11 @@ impl<'de, 'a, R: Read<'de> + 'a> de::SeqAccess<'de> for SeqAccess<'a, R> {
 
 struct MapAccess<'a, R: 'a> {
     de: &'a mut Deserializer<R>,
-    first: bool,
 }
 
 impl<'a, R: 'a> MapAccess<'a, R> {
     fn new(de: &'a mut Deserializer<R>) -> Self {
-        MapAccess { de, first: true }
+        MapAccess { de }
     }
 }
 
@@ -1401,13 +1400,6 @@ impl<'de, 'a, R: Read<'de> + 'a> de::MapAccess<'de> for MapAccess<'a, R> {
 
             if peek == b'}' {
                 Ok(false)
-            } else if map.first {
-                map.first = false;
-                if peek == b'"' {
-                    Ok(true)
-                } else {
-                    Err(map.de.peek_error(ErrorCode::KeyMustBeAString))
-                }
             } else if peek == b',' {
                 map.de.eat_char();
                 match tri!(map.de.parse_whitespace()) {
@@ -1417,7 +1409,11 @@ impl<'de, 'a, R: Read<'de> + 'a> de::MapAccess<'de> for MapAccess<'a, R> {
                     None => Err(map.de.peek_error(ErrorCode::EofWhileParsingValue)),
                 }
             } else {
-                Err(map.de.peek_error(ErrorCode::ExpectedObjectCommaOrEnd))
+                // patch(spa): commas are optional
+                match tri!(map.de.parse_whitespace()) {
+                    Some(b'}') => Ok(false),
+                    _ => Ok(true),
+                }
             }
         }
 
@@ -1610,11 +1606,37 @@ where
     where
         V: de::Visitor<'de>,
     {
-        self.de.eat_char();
-        self.de.scratch.clear();
-        match tri!(self.de.read.parse_str(&mut self.de.scratch)) {
-            Reference::Borrowed(s) => visitor.visit_borrowed_str(s),
-            Reference::Copied(s) => visitor.visit_str(s),
+        // patch(spa): handle unquoted keys
+        let quoted = match tri!(self.de.peek()) {
+            Some(b'"') => {
+                self.de.eat_char();
+                true
+            }
+            _ => false,
+        };
+
+        if quoted {
+            self.de.eat_char();
+            self.de.scratch.clear();
+            match tri!(self.de.read.parse_str(&mut self.de.scratch)) {
+                Reference::Borrowed(s) => visitor.visit_borrowed_str(s),
+                Reference::Copied(s) => visitor.visit_str(s),
+            }
+        } else {
+            // unquoted key
+            self.de.scratch.clear();
+            loop {
+                match tri!(self.de.peek()) {
+                    Some(b) if !b.is_ascii_whitespace() => {
+                        self.de.scratch.push(b);
+                        self.de.eat_char();
+                    }
+                    _ => break,
+                }
+            }
+            let s = std::str::from_utf8(&self.de.scratch)
+                .map_err(|_| self.de.error(ErrorCode::InvalidUnicodeCodePoint))?;
+            visitor.visit_str(s)
         }
     }
 

@@ -1,10 +1,8 @@
-use crate::{Error, number::Number};
+use crate::{Error, Map, number::Number};
 
 use self::ser::Serializer;
 
 pub mod ser;
-
-pub type Map<K, V> = std::collections::HashMap<K, V>;
 
 pub enum Value {
     Null,

@@ -7,6 +7,8 @@ mod read;
 mod ser;
 mod value;
 
+pub type Map<K, V> = std::collections::HashMap<K, V>;
+
 pub use self::de::{from_reader, from_slice, from_str};
 pub use self::error::{Error, Result};
 pub use self::ser::{

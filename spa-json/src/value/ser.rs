@@ -251,9 +251,7 @@ impl serde::Serializer for Serializer {
     }
 
     fn serialize_struct(self, name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
-        match name {
-            _ => self.serialize_map(Some(len)),
-        }
+        self.serialize_map(Some(len))
     }
 
     fn serialize_struct_variant(

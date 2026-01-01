@@ -455,7 +455,7 @@ impl_from_signed!(i8, i16, i32, i64, isize);
 
 impl Number {
     #[cold]
-    pub(crate) fn unexpected(&self) -> Unexpected {
+    pub(crate) fn unexpected(&self) -> Unexpected<'_> {
         match self.n {
             N::PosInt(u) => Unexpected::Unsigned(u),
             N::NegInt(i) => Unexpected::Signed(i),

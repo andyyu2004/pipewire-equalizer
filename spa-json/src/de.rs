@@ -14,7 +14,7 @@ use std::io;
 use std::string::String;
 use std::vec::Vec;
 
-pub use crate::read::{Read, SliceRead, StrRead};
+pub use crate::read::Read;
 
 /// A structure that deserializes JSON into Rust values.
 pub struct Deserializer<R> {

@@ -1008,9 +1008,9 @@ impl<'de, R: Read<'de>> de::Deserializer<'de> for &mut Deserializer<R> {
     /// ```
     /// use serde_bytes::ByteBuf;
     ///
-    /// fn look_at_bytes() -> Result<(), serde_json::Error> {
+    /// fn look_at_bytes() -> Result<(), spa_json::Error> {
     ///     let json_data = b"\"some bytes: \xe5\x00\xe5\"";
-    ///     let bytes: ByteBuf = serde_json::from_slice(json_data)?;
+    ///     let bytes: ByteBuf = spa_json::from_slice(json_data)?;
     ///
     ///     assert_eq!(b'\xe5', bytes[12]);
     ///     assert_eq!(b'\0', bytes[13]);
@@ -1029,9 +1029,9 @@ impl<'de, R: Read<'de>> de::Deserializer<'de> for &mut Deserializer<R> {
     /// ```
     /// use serde_bytes::ByteBuf;
     ///
-    /// fn look_at_bytes() -> Result<(), serde_json::Error> {
+    /// fn look_at_bytes() -> Result<(), spa_json::Error> {
     ///     let json_data = b"\"lone surrogate: \\uD801\"";
-    ///     let bytes: ByteBuf = serde_json::from_slice(json_data)?;
+    ///     let bytes: ByteBuf = spa_json::from_slice(json_data)?;
     ///     let expected = b"lone surrogate: \xED\xA0\x81";
     ///     assert_eq!(expected, bytes.as_slice());
     ///     Ok(())
@@ -1749,7 +1749,7 @@ where
 /// arrays, objects, or strings, or be followed by whitespace or a self-delineating value.
 ///
 /// ```
-/// use serde_json::{Deserializer, Value};
+/// use spa_json::{Deserializer, Value};
 ///
 /// fn main() {
 ///     let data = "{\"k\": 3}1\"cool\"\"stuff\" 3{}  [0, 1, 2]";
@@ -1801,7 +1801,7 @@ where
     /// ```
     /// let data = b"[0] [1] [";
     ///
-    /// let de = serde_json::Deserializer::from_slice(data);
+    /// let de = spa_json::Deserializer::from_slice(data);
     /// let mut stream = de.into_iter::<Vec<i32>>();
     /// assert_eq!(0, stream.byte_offset());
     ///
@@ -1962,7 +1962,7 @@ where
 ///     let reader = BufReader::new(file);
 ///
 ///     // Read the JSON contents of the file as an instance of `User`.
-///     let u = serde_json::from_reader(reader)?;
+///     let u = spa_json::from_reader(reader)?;
 ///
 ///     // Return the `User`.
 ///     Ok(u)
@@ -1992,7 +1992,7 @@ where
 /// }
 ///
 /// fn read_user_from_stream(stream: &mut BufReader<TcpStream>) -> Result<User, Box<dyn Error>> {
-///     let mut de = serde_json::Deserializer::from_reader(stream);
+///     let mut de = spa_json::Deserializer::from_reader(stream);
 ///     let u = User::deserialize(&mut de)?;
 ///
 ///     Ok(u)
@@ -2049,7 +2049,7 @@ where
 ///             \"location\": \"Menlo Park, CA\"
 ///         }";
 ///
-///     let u: User = serde_json::from_slice(j).unwrap();
+///     let u: User = spa_json::from_slice(j).unwrap();
 ///     println!("{:#?}", u);
 /// }
 /// ```
@@ -2091,7 +2091,7 @@ where
 ///             \"location\": \"Menlo Park, CA\"
 ///         }";
 ///
-///     let u: User = serde_json::from_str(j).unwrap();
+///     let u: User = spa_json::from_str(j).unwrap();
 ///     println!("{:#?}", u);
 /// }
 /// ```

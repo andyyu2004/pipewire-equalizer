@@ -147,7 +147,7 @@ impl Number {
     /// numbers.
     ///
     /// ```
-    /// # use serde_json::Number;
+    /// # use spa_json::Number;
     /// #
     /// assert!(Number::from_f64(256.0).is_some());
     ///
@@ -186,7 +186,7 @@ impl Number {
     /// "arbitrary_precision" feature is enabled.
     ///
     /// ```
-    /// # use serde_json::Number;
+    /// # use spa_json::Number;
     /// #
     /// assert!(Number::from_i128(256).is_some());
     /// ```
@@ -208,7 +208,7 @@ impl Number {
     /// is enabled.
     ///
     /// ```
-    /// # use serde_json::Number;
+    /// # use spa_json::Number;
     /// #
     /// assert!(Number::from_u128(256).is_some());
     /// ```

@@ -1458,7 +1458,7 @@ pub trait Formatter {
         if first {
             Ok(())
         } else {
-            writer.write_all(b",")
+            writer.write_all(b" ")
         }
     }
 
@@ -1523,7 +1523,7 @@ pub trait Formatter {
     where
         W: ?Sized + io::Write,
     {
-        writer.write_all(b":")
+        writer.write_all(b"=")
     }
 
     /// Called after every object value.
@@ -1609,11 +1609,11 @@ impl<'a> Formatter for PrettyFormatter<'a> {
     }
 
     #[inline]
-    fn begin_array_value<W>(&mut self, writer: &mut W, first: bool) -> io::Result<()>
+    fn begin_array_value<W>(&mut self, writer: &mut W, _first: bool) -> io::Result<()>
     where
         W: ?Sized + io::Write,
     {
-        tri!(writer.write_all(if first { b"\n" } else { b",\n" }));
+        tri!(writer.write_all(b"\n"));
         indent(writer, self.current_indent, self.indent)
     }
 
@@ -1652,11 +1652,11 @@ impl<'a> Formatter for PrettyFormatter<'a> {
     }
 
     #[inline]
-    fn begin_object_key<W>(&mut self, writer: &mut W, first: bool) -> io::Result<()>
+    fn begin_object_key<W>(&mut self, writer: &mut W, _first: bool) -> io::Result<()>
     where
         W: ?Sized + io::Write,
     {
-        tri!(writer.write_all(if first { b"\n" } else { b",\n" }));
+        tri!(writer.write_all(b"\n"));
         indent(writer, self.current_indent, self.indent)
     }
 
@@ -1665,7 +1665,7 @@ impl<'a> Formatter for PrettyFormatter<'a> {
     where
         W: ?Sized + io::Write,
     {
-        writer.write_all(b": ")
+        writer.write_all(b" = ")
     }
 
     #[inline]

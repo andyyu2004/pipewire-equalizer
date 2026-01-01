@@ -1823,6 +1823,7 @@ name = "spa-json"
 version = "0.1.0"
 dependencies = [
  "expect-test",
+ "indexmap",
  "itoa",
  "libspa-sys",
  "memchr",

@@ -7,7 +7,7 @@ mod read;
 mod ser;
 mod value;
 
-pub type Map<K, V> = std::collections::BTreeMap<K, V>;
+pub type Map<K, V> = IndexMap<K, V>;
 
 pub use self::de::{from_reader, from_slice, from_str};
 pub use self::error::{Error, Result};
@@ -25,6 +25,7 @@ macro_rules! tri {
     };
 }
 
+use indexmap::IndexMap;
 use tri;
 
 #[doc(hidden)]

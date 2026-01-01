@@ -4,18 +4,18 @@ use spa_json::json;
 fn test() {
     expect_test::expect![[r#"
         {
+          "name": "Alice",
           "age": 30,
           "is_student": false,
-          "address": {
-            "street": "123 Main St",
-            "city": "Wonderland"
-          },
           "courses": [
             "Math",
             "Science",
             "Art"
           ],
-          "name": "Alice"
+          "address": {
+            "street": "123 Main St",
+            "city": "Wonderland"
+          }
         }"#]]
     .assert_eq(
         &spa_json::to_string_pretty(&json!({

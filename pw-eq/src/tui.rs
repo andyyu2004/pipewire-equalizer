@@ -107,7 +107,7 @@ pub struct App<B: Backend + io::Write> {
     config: Config,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Config {
     keymap: KeyMap<InputMode, zi_input::KeyEvent, Action>,
@@ -728,7 +728,19 @@ where
 }
 
 #[cfg(test)]
-#[test]
-fn test_default_config_parses() {
-    let _config = Config::default();
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn test_default_config_parses() {
+        let _config = Config::default();
+    }
+
+    #[test]
+    fn test_config_serdes() {
+        let config = Config::default();
+        let s = spa_json::to_string_pretty(&config).unwrap();
+        let config2: Config = spa_json::from_str(&s).unwrap();
+        assert_eq!(config, config2);
+    }
 }

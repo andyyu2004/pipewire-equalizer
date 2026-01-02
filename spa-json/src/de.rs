@@ -1306,7 +1306,9 @@ impl<'de, R: Read<'de>> de::Deserializer<'de> for &mut Deserializer<R> {
     where
         V: de::Visitor<'de>,
     {
-        self.deserialize_str(visitor)
+        // patch(spa): deserialize unquoted
+        self.parse_whitespace()?;
+        MapKey { de: self }.deserialize_any(visitor)
     }
 
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
@@ -1550,8 +1552,6 @@ impl<'de, 'a, R: Read<'de> + 'a> de::VariantAccess<'de> for UnitVariantAccess<'a
     }
 }
 
-/// Only deserialize from this after peeking a '"' byte! Otherwise it may
-/// deserialize invalid JSON successfully.
 struct MapKey<'a, R: 'a> {
     de: &'a mut Deserializer<R>,
 }

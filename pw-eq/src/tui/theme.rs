@@ -1,6 +1,6 @@
 use ratatui::style::Color;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub(crate) struct Theme {
     pub background: Color,

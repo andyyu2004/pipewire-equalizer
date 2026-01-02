@@ -1,6 +1,6 @@
 use super::{InputMode, Rotation};
 
-#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Action {
     EnterMode { mode: InputMode },
@@ -31,7 +31,7 @@ pub enum Action {
     MoveCursorEnd,
 }
 
-#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Adjustment {
     Multiplier(f64),

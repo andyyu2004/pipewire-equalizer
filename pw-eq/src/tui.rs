@@ -690,13 +690,20 @@ where
             ["q" | "quit"] => return Ok(ControlFlow::Break(())),
             [cmd @ ("w" | "write" | "w!" | "write!"), args @ ..] => {
                 let force = cmd.ends_with('!');
-                let path = match args {
+                let mut path = match args {
                     [path] => PathBuf::from(path),
                     _ => {
                         self.status = Some(Err("usage: write <path>".to_string()));
                         return Ok(ControlFlow::Continue(()));
                     }
                 };
+
+                if path.is_relative() {
+                    path = dirs::config_dir()
+                        .unwrap()
+                        .join("pipewire/pipewire.conf.d")
+                        .join(path);
+                }
 
                 let format = match path.extension() {
                     Some(ext) if ext == "apo" => Format::Apo,

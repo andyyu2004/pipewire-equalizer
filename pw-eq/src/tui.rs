@@ -738,6 +738,12 @@ where
     }
 }
 
+impl<B: Backend + io::Write> Drop for App<B> {
+    fn drop(&mut self) {
+        let _ = execute!(io::stdout(), cursor::SetCursorStyle::DefaultUserShape);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Config;

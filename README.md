@@ -40,7 +40,7 @@ The default keybinding scheme uses an `esdf` (shifted `wasd`) layout for filter 
 ```bash
 # Starts TUI equalizer with default filters available.
 # See the config file or press ? to see all available keybinds.
-pw-eq tui
+pw-eq [tui]
 ```
 
 Load from a file:

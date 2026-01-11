@@ -25,7 +25,7 @@ struct Args {
     #[clap(long)]
     pub log_file: Option<PathBuf>,
     #[clap(subcommand)]
-    command: Cmd,
+    command: Option<Cmd>,
 }
 
 #[derive(Parser)]
@@ -81,14 +81,14 @@ struct SetArgs {
     persist: bool,
 }
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 /// Set an EQ as the default sink
 struct UseArgs {
     /// EQ name or ID
     profile: String,
 }
 
-#[derive(Parser)]
+#[derive(Debug, Default, Parser)]
 struct TuiArgs {
     /// Load a specific EQ profile on startup
     /// Currently supports .apo and .conf pipewire module files
@@ -99,7 +99,7 @@ struct TuiArgs {
     preset: Option<Preset>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum Preset {
     Flat { bands: usize },
 }
@@ -218,19 +218,22 @@ async fn main() -> anyhow::Result<()> {
     };
 
     match args.command {
-        Cmd::Config(config) => configure(config).await?,
-        Cmd::Create(create) => create_eq(create).await?,
-        Cmd::List => {
-            let eqs = pw_eq::list_eqs().await?;
-            let table = Table::new(eqs);
-            println!("{table}");
-        }
-        Cmd::Describe(describe) => describe_eq(&describe).await?,
-        Cmd::Set(set) => set_filter(set).await?,
-        Cmd::Use(use_cmd) => {
-            use_eq(&use_cmd.profile).await?;
-        }
-        Cmd::Tui(tui) => run_tui(tui).await?,
+        None => run_tui(Default::default()).await?,
+        Some(cmd) => match cmd {
+            Cmd::Config(config) => configure(config).await?,
+            Cmd::Create(create) => create_eq(create).await?,
+            Cmd::List => {
+                let eqs = pw_eq::list_eqs().await?;
+                let table = Table::new(eqs);
+                println!("{table}");
+            }
+            Cmd::Describe(describe) => describe_eq(&describe).await?,
+            Cmd::Set(set) => set_filter(set).await?,
+            Cmd::Use(use_cmd) => {
+                use_eq(&use_cmd.profile).await?;
+            }
+            Cmd::Tui(tui) => run_tui(tui).await?,
+        },
     }
 
     Ok(())

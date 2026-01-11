@@ -19,21 +19,27 @@ cargo install --path pw-eq
 
 ## Usage
 
-Intended workflow is to
+The intended workflow is to tweak the equalizer interactively using the TUI, then save the configuration to a file for PipeWire to load on startup.
 
-```bash
-pw-eq
-```
+Create default config for modification.
+The configuration is in the [spa-json](https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/conf_file.html) format, a superset of JSON.
+This allows modification of keybinds and the theme.
 
-Create default config for modification. The configuration is in the [spa-json](https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/conf_file.html) format, a superset of JSON.
-Can modify keybinds and the theme.
 ```bash
 pw-eq config init
 ```
 
+The default keybinding scheme uses an `esdf` (shifted `wasd`) layout for filter manipulation.
+- `e`/`d` - increase/decrease gain (vertical axis)
+- `s`/`f` - decrease/increase frequency (horizontal axis)
+- `w`/`r` - decrease/increase Q factor (bandwidth control, positioned above)
+- `TAB/SHIFT+TAB`- toggle filter type. Low-pass, high-pass, band-pass, notch, peak, low-shelf, high-shelf are supported.
+- `j`/`k` - move selection down/up
+
+
 ```bash
 # Starts TUI equalizer with default filters available.
-# See the config file or press ? to see available keybinds.
+# See the config file or press ? to see all available keybinds.
 pw-eq tui
 ```
 

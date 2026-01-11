@@ -694,7 +694,11 @@ where
                 };
 
                 let format = match path.extension() {
-                    Some(ext) if ext == "apo" => Format::Apo,
+                    Some(ext)
+                        if ext.eq_ignore_ascii_case("apo") || ext.eq_ignore_ascii_case("txt") =>
+                    {
+                        Format::Apo
+                    }
                     _ => Format::PwParamEq,
                 };
 

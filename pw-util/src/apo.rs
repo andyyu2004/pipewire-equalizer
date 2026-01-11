@@ -92,7 +92,7 @@ impl Config {
     pub async fn parse_file(path: impl AsRef<Path>) -> Result<Config> {
         fs::read_to_string(path.as_ref())
             .await
-            .context("Failed to read .apo file")?
+            .context("Failed to read apo format file")?
             .parse()
     }
 }

@@ -749,6 +749,13 @@ mod tests {
     }
 
     #[test]
+    fn test_config_compat() {
+        // Ensure that the stable config file can still be parsed in the current version
+        let stable_config = include_str!("../pw-eq.conf");
+        let _config: Config = spa_json::from_str::<Config>(stable_config).unwrap();
+    }
+
+    #[test]
     fn test_config_serdes() {
         let config = Config::default();
         let s = spa_json::to_string_pretty(&config).unwrap();

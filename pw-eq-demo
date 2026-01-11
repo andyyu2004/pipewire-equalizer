@@ -38,7 +38,7 @@
 [3.44032, "o", "\u001b[m\u001b]133;C;cmdline_url=pw-eq%20config%20init\u0007"]
 [3.453497, "o", "\u001b[2 q"]
 [3.454059, "o", "\u001b]0;pw-eq config init ~/d/pipewire-equalizer\u0007\u001b[m\r"]
-[3.458026, "o", "Created default configuration file at `/home/andy/.config/pw-eq/pweq.conf`\r\n"]
+[3.458026, "o", "Created default configuration file at `/home/andy/.config/pw-eq/pw-eq.conf`\r\n"]
 [3.458369, "o", "\u001b]133;D;0\u0007"]
 [3.45901, "o", "\u001b[6 q"]
 [3.459022, "o", "\u001b[?25h"]

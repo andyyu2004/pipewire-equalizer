@@ -245,7 +245,7 @@ async fn configure(args: ConfigArgs) -> anyhow::Result<()> {
 
             fs::create_dir_all(&config_dir).await?;
 
-            let config_path = config_dir.join("pweq.conf");
+            let config_path = config_dir.join("pw-eq.conf");
             if !force && config_path.exists() {
                 return Err(anyhow::anyhow!(
                     "Configuration file at `{}` already exists",
@@ -297,7 +297,7 @@ async fn run_tui(args: TuiArgs) -> anyhow::Result<()> {
     let term = ratatui::init();
 
     let base_config = tui::Config::default();
-    let user_config_path = dirs::config_dir().unwrap().join("pw-eq/pweq.conf");
+    let user_config_path = dirs::config_dir().unwrap().join("pw-eq/pw-eq.conf");
     let config = if user_config_path.exists() {
         tracing::info!(
             path = %user_config_path.display(),

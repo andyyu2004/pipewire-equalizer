@@ -269,30 +269,87 @@ async fn configure(args: ConfigArgs) -> anyhow::Result<()> {
     }
 }
 
+fn extract_pw_module_filters(conf: &module::Config) -> anyhow::Result<(f64, Vec<Filter>)> {
+    let mut fs = vec![];
+    let mut preamp = 0.0;
+
+    fn mk(control: &module::Control, filter_type: FilterType) -> Filter {
+        Filter {
+            frequency: control.freq,
+            q: control.q,
+            gain: control.gain,
+            filter_type,
+            muted: false,
+        }
+    }
+
+    use FilterType::*;
+    for node in conf.context_modules[0].args.filter_graph.nodes.iter() {
+        match &node.kind {
+            module::NodeKind::Peaking { control } => {
+                fs.push(mk(control, Peaking));
+            }
+            module::NodeKind::LowShelf { control } => {
+                fs.push(mk(control, LowShelf));
+            }
+            module::NodeKind::HighShelf { control } => {
+                if control.freq == 0.0 {
+                    preamp = control.gain;
+                    continue;
+                }
+                fs.push(mk(control, HighShelf));
+            }
+            module::NodeKind::LowPass { control } => {
+                fs.push(mk(control, LowPass));
+            }
+            module::NodeKind::BandPass { control } => {
+                fs.push(mk(control, BandPass));
+            }
+            module::NodeKind::Notch { control } => {
+                fs.push(mk(control, Notch));
+            }
+            module::NodeKind::HighPass { control } => {
+                fs.push(mk(control, HighPass));
+            }
+            module::NodeKind::Raw { config: _ } => {
+                anyhow::bail!("cannot load filters from 'raw' node kind in pipewire configuration")
+            }
+            module::NodeKind::ParamEq { config } => {
+                fs.extend(config.filters.iter().filter_map(|f| match f.ty {
+                    HighShelf if f.control.freq == 0.0 => {
+                        preamp = f.control.gain;
+                        None
+                    }
+                    ty => Some(mk(&f.control, ty)),
+                }))
+            }
+        }
+    }
+
+    Ok((preamp, fs))
+}
+
 async fn run_tui(args: TuiArgs) -> anyhow::Result<()> {
     let (preamp, filters) = match (args.file, args.preset) {
         (Some(_), Some(_)) => unreachable!("clap should prevent this case"),
-        (Some(path), None) => {
-            match path.extension() {
-                Some(ext) if ext == "conf" => {
-                    let conf = module::Config::parse_file(&path)?;
-                    if conf.context_modules.len() != 1 {
-                        anyhow::bail!(
-                            "expected exactly one context module in config, found {}",
-                            conf.context_modules.len()
-                        );
-                    }
+        (Some(path), None) => match path.extension() {
+            Some(ext) if ext == "conf" => {
+                let conf = module::Config::parse_file(&path)?;
+                if conf.context_modules.len() != 1 {
+                    anyhow::bail!(
+                        "cannot load .conf file with {} context modules, expected 1",
+                        conf.context_modules.len()
+                    );
+                }
 
-                    todo!()
-                    // match &conf.context_modules[0].args.filter_graph.nodes {}
-                }
-                Some(ext) if ext.eq_ignore_ascii_case("apo") || ext.eq_ignore_ascii_case("txt") => {
-                    let c = apo::Config::parse_file(path).await?;
-                    (c.preamp, c.filters.into_iter().map(Into::into).collect())
-                }
-                _ => anyhow::bail!("file must have an extension of .apo, .txt or .conf"),
+                extract_pw_module_filters(&conf)?
             }
-        }
+            Some(ext) if ext.eq_ignore_ascii_case("apo") || ext.eq_ignore_ascii_case("txt") => {
+                let c = apo::Config::parse_file(path).await?;
+                (c.preamp, c.filters.into_iter().map(Into::into).collect())
+            }
+            _ => anyhow::bail!("file must have an extension of .apo, .txt or .conf"),
+        },
         (None, Some(preset)) => (0.0, preset.make_filters()),
         _ => Default::default(),
     };

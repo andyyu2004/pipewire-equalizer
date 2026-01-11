@@ -53,6 +53,25 @@ impl Filter {
             };
         }
 
+        if self.q <= 0.0 {
+            match self.filter_type {
+                // Special case, high-shelf with Q <= 0 is just pure gain
+                FilterType::HighShelf => {
+                    return BiquadCoefficients {
+                        b0: 10_f64.powf(self.gain / 20.0),
+                        b1: 0.0,
+                        b2: 0.0,
+                        a1: 0.0,
+                        a2: 0.0,
+                    };
+                }
+                _ => panic!(
+                    "Q factor must be positive for filter type {:?}",
+                    self.filter_type
+                ),
+            }
+        }
+
         assert!(self.q > 0.0, "Q factor must be positive");
         assert!(self.frequency > 0.0);
 

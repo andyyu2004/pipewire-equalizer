@@ -45,7 +45,7 @@ pw-eq [tui]
 
 Load from a file:
 ```bash
-pw-eq tui --file <PATH> # only .apo format is currently supported
+pw-eq tui --file <PATH> # .apo,.txt or pipewire libpipewire-module-filter-chain .conf format supported.
 ```
 
 Load a preset:

@@ -738,7 +738,13 @@ where
                     {
                         Format::Apo
                     }
-                    _ => Format::PwParamEq,
+                    Some(ext) if ext.eq_ignore_ascii_case("conf") => Format::PwParamEq,
+                    _ => {
+                        self.status = Some(Err(
+                            "output file must have an extension of .conf (PipeWire) or .apo/.txt (APO)".to_string(),
+                        ));
+                        return Ok(ControlFlow::Continue(()));
+                    }
                 };
 
                 if path.is_relative() && matches!(format, Format::PwParamEq) {

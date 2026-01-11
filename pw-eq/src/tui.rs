@@ -693,17 +693,17 @@ where
                     }
                 };
 
-                if path.is_relative() {
+                let format = match path.extension() {
+                    Some(ext) if ext == "apo" => Format::Apo,
+                    _ => Format::PwParamEq,
+                };
+
+                if path.is_relative() && matches!(format, Format::PwParamEq) {
                     path = dirs::config_dir()
                         .unwrap()
                         .join("pipewire/pipewire.conf.d")
                         .join(path);
                 }
-
-                let format = match path.extension() {
-                    Some(ext) if ext == "apo" => Format::Apo,
-                    _ => Format::PwParamEq,
-                };
 
                 if path.exists() && !force {
                     self.status = Some(Err(format!(

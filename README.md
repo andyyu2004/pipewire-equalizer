@@ -19,17 +19,22 @@ cargo install --path pw-eq
 
 ## Usage
 
+Intended workflow is to
+
 ```bash
 pw-eq
 ```
 
 Create default config for modification. The configuration is in the [spa-json](https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/conf_file.html) format, a superset of JSON.
+Can modify keybinds and the theme.
 ```bash
 pw-eq config init
 ```
 
 ```bash
-pw-eq tui # starts TUI equalizer with default filters
+# Starts TUI equalizer with default filters available.
+# See the config file or press ? to see available keybinds.
+pw-eq tui
 ```
 
 Load from a file:
@@ -44,7 +49,10 @@ pw-eq tui --preset flat<n>
 
 Save configuration to a file:
 ```bash
-# Within TUI command line
-:w <PATH>
+# Within the TUI command line:
+:w <PATH>.{conf,apo}
+# If a relative path is provided:
+# .conf format is saved to `$XDG_CONFIG_HOME/pipewire/pipewire.conf.d/<PATH>`. Pipewire must be restarted to pick up new config.
+# .apo format is saved to `$(pwd)/<PATH>`.
 ```
 

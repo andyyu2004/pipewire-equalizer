@@ -33,14 +33,14 @@ The default keybinding scheme uses an `esdf` (shifted `wasd`) layout for filter 
 - `e`/`d` - increase/decrease gain (vertical axis)
 - `s`/`f` - decrease/increase frequency (horizontal axis)
 - `w`/`r` - decrease/increase Q factor (bandwidth control, positioned above)
-- `TAB/SHIFT+TAB`- toggle filter type. Low-pass, high-pass, band-pass, notch, peak, low-shelf, high-shelf are supported.
+- `tab/s-tab`- toggle filter type. Low-pass, high-pass, band-pass, notch, peak, low-shelf, high-shelf are supported.
 - `j`/`k` - move selection down/up
 
 
 ```bash
 # Starts TUI equalizer with default filters available.
 # See the config file or press ? to see all available keybinds.
-pw-eq [tui]
+pw-eq
 ```
 
 Load from a file:

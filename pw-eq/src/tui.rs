@@ -141,8 +141,8 @@ impl Default for Config {
                     "b":         "toggle-bypass",
                     "a":         "add-filter",
                     "x":         "remove-filter",
-                    "<Esc>":   { "enter-mode": { "mode": "normal" } },
-                    ":":       { "enter-mode": { "mode": "command" } },
+                    "<Esc>":   { "enter-mode": "normal" },
+                    ":":       { "enter-mode": "command" },
                     "1":       { "select-index": 0 },
                     "2":       { "select-index": 1 },
                     "3":       { "select-index": 2 },
@@ -170,14 +170,14 @@ impl Default for Config {
                     "+":       { "adjust-preamp": { "delta": 0.1 } },
                     "<S-P>":   { "adjust-preamp": { "delta": -0.1 } },
                     "-":       { "adjust-preamp": { "delta": -0.1 } },
-                    "<Tab>":   { "cycle-filter-type": { "rotation": "clockwise" } },
-                    "<S-Tab>": { "cycle-filter-type": { "rotation": "counter-clockwise" } },
-                    "v":       { "cycle-view-mode": { "rotation": "clockwise" } },
+                    "<Tab>":   { "cycle-filter-type": "clockwise" },
+                    "<S-Tab>": { "cycle-filter-type": "counter-clockwise" },
+                    "v":       { "cycle-view-mode": "clockwise" },
                     "0":       { "adjust-gain": { "set": 0.0 } },
                 },
                 "command": {
-                    "<Esc>":       { "enter-mode": { "mode": "normal" } },
-                    "<C-c>":       { "enter-mode": { "mode": "normal" } },
+                    "<Esc>":       { "enter-mode": "normal" },
+                    "<C-c>":       { "enter-mode": "normal" },
                     "<CR>":        "execute-command",
                     "<Up>":        "command-history-previous",
                     "<Down>":      "command-history-next",
@@ -437,7 +437,7 @@ where
         let before_filter_count = self.eq.filters.len();
 
         match action {
-            Action::EnterMode { mode } => match mode {
+            Action::EnterMode(mode) => match mode {
                 InputMode::Normal => self.enter_normal_mode(),
                 InputMode::Command => self.enter_command_mode(),
             },
@@ -457,10 +457,10 @@ where
             Action::AdjustGain(adj) => self.eq.adjust_gain(|g| adj.apply(g)),
             Action::AdjustQ(adj) => self.eq.adjust_q(|q| adj.apply(q)),
             Action::AdjustPreamp(adj) => self.eq.adjust_preamp(|p| adj.apply(p)),
-            Action::CycleFilterType { rotation } => self.eq.cycle_filter_type(rotation),
+            Action::CycleFilterType(rotation) => self.eq.cycle_filter_type(rotation),
             Action::ToggleBypass => self.eq.toggle_bypass(),
             Action::ToggleMute => self.eq.toggle_mute(),
-            Action::CycleViewMode { rotation } => self.cycle_view_mode(rotation),
+            Action::CycleViewMode(rotation) => self.cycle_view_mode(rotation),
             Action::ExecuteCommand => {
                 let InputMode::Command = mem::replace(&mut self.input_mode, InputMode::Normal)
                 else {
@@ -593,13 +593,9 @@ where
         // Group keys by action description
         let mut action_keys: HashMap<String, Vec<String>> = HashMap::new();
 
-        // Iterate through all normal mode bindings
         for (key, action) in self.config.keymap.iter_mode(&InputMode::Normal) {
             // Special handling for mode switching
-            if let Action::EnterMode {
-                mode: InputMode::Command,
-            } = action
-            {
+            if let Action::EnterMode(InputMode::Command) = action {
                 action_keys
                     .entry("command".to_string())
                     .or_default()
@@ -616,7 +612,6 @@ where
             }
         }
 
-        // Build help text, sorted by action
         let mut help_items: Vec<String> = action_keys
             .into_iter()
             .map(|(desc, mut keys)| {

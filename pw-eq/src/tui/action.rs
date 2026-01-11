@@ -3,7 +3,7 @@ use super::{InputMode, Rotation};
 #[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Action {
-    EnterMode { mode: InputMode },
+    EnterMode(InputMode),
     ClearStatus,
     ToggleHelp,
     Quit,
@@ -18,8 +18,8 @@ pub enum Action {
     AdjustGain(Adjustment),
     AdjustQ(Adjustment),
     AdjustPreamp(Adjustment),
-    CycleFilterType { rotation: Rotation },
-    CycleViewMode { rotation: Rotation },
+    CycleFilterType(Rotation),
+    CycleViewMode(Rotation),
     ExecuteCommand,
     CommandHistoryPrevious,
     CommandHistoryNext,
@@ -67,9 +67,9 @@ impl Action {
             Action::AdjustGain(_) => Some("gain"),
             Action::AdjustQ(_) => Some("Q"),
             Action::AdjustPreamp(_) => Some("preamp"),
-            Action::CycleFilterType { .. } => Some("type"),
-            Action::CycleViewMode { .. } => Some("view"),
-            Action::EnterMode { mode } => match mode {
+            Action::CycleFilterType(..) => Some("cycle type"),
+            Action::CycleViewMode(..) => Some("cycle view"),
+            Action::EnterMode(mode) => match mode {
                 InputMode::Normal => Some("normal mode"),
                 InputMode::Command => Some("command mode"),
             },

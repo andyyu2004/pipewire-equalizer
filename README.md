@@ -10,7 +10,6 @@ TUI equalizer for PipeWire.
 
 PipeWire v1.0+ must be installed and running on your system.
 
-
 ## Installation
 
 ```bash

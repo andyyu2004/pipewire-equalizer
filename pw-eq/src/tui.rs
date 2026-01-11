@@ -4,6 +4,7 @@ mod eq;
 mod theme;
 
 use crate::{FilterId, UpdateFilter, filter::Filter, update_filters, use_eq};
+use pw_util::module::FilterType;
 use std::collections::HashMap;
 use std::{
     error::Error,
@@ -202,6 +203,7 @@ where
     pub fn new(
         term: Terminal<B>,
         config: Config,
+        preamp: f64,
         filters: impl IntoIterator<Item = Filter>,
     ) -> io::Result<Self> {
         let (pw_tx, rx) = pipewire::channel::channel();
@@ -212,11 +214,48 @@ where
         let tasks = Box::pin(ReceiverStream::new(task_rx).buffered(8));
 
         let filters = filters.into_iter().collect::<Vec<_>>();
-        let eq = if !filters.is_empty() {
-            Eq::with_filters("pweq".to_string(), filters)
+        let name = "pw-eq";
+        let mut eq = if !filters.is_empty() {
+            Eq::new(name, filters)
         } else {
-            Eq::new("pweq".to_string())
+            Eq::new(
+                name,
+                [
+                    Filter {
+                        frequency: 50.0,
+                        filter_type: FilterType::LowShelf,
+                        ..Default::default()
+                    },
+                    Filter {
+                        frequency: 100.0,
+                        ..Default::default()
+                    },
+                    Filter {
+                        frequency: 200.0,
+                        ..Default::default()
+                    },
+                    Filter {
+                        frequency: 500.0,
+                        ..Default::default()
+                    },
+                    Filter {
+                        frequency: 2000.0,
+                        ..Default::default()
+                    },
+                    Filter {
+                        frequency: 5000.0,
+                        ..Default::default()
+                    },
+                    Filter {
+                        frequency: 10000.0,
+                        filter_type: FilterType::HighShelf,
+                        ..Default::default()
+                    },
+                ],
+            )
         };
+
+        eq.adjust_preamp(|_p| preamp);
 
         Ok(Self {
             term,

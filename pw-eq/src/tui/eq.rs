@@ -37,10 +37,10 @@ impl Eq {
             })
     }
 
-    pub fn with_filters(name: String, filters: impl IntoIterator<Item = Filter>) -> Self {
+    pub fn new(name: impl Into<String>, filters: impl IntoIterator<Item = Filter>) -> Self {
         let filters = filters.into_iter().collect::<Vec<_>>();
         Self {
-            name,
+            name: name.into(),
             // Set initial preamp to max gain among bands to avoid clipping
             preamp: -filters
                 .iter()
@@ -51,44 +51,6 @@ impl Eq {
             max_filters: 31,
             bypassed: false,
         }
-    }
-
-    pub fn new(name: String) -> Self {
-        Self::with_filters(
-            name,
-            [
-                Filter {
-                    frequency: 50.0,
-                    filter_type: FilterType::LowShelf,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 100.0,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 200.0,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 500.0,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 2000.0,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 5000.0,
-                    ..Default::default()
-                },
-                Filter {
-                    frequency: 10000.0,
-                    filter_type: FilterType::HighShelf,
-                    ..Default::default()
-                },
-            ],
-        )
     }
 
     pub fn add_filter(&mut self) {

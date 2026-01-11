@@ -270,7 +270,7 @@ async fn configure(args: ConfigArgs) -> anyhow::Result<()> {
 }
 
 async fn run_tui(args: TuiArgs) -> anyhow::Result<()> {
-    let filters = match (args.file, args.preset) {
+    let (preamp, filters) = match (args.file, args.preset) {
         (Some(_), Some(_)) => unreachable!("clap should prevent this case"),
         (Some(path), None) => {
             match path.extension() {
@@ -283,18 +283,18 @@ async fn run_tui(args: TuiArgs) -> anyhow::Result<()> {
                         );
                     }
 
-                    todo!("{:#?}", conf.context_modules[0])
+                    todo!()
+                    // match &conf.context_modules[0].args.filter_graph.nodes {}
                 }
-                Some(ext) if ext == "apo" => {
-                    let conf = apo::Config::parse_file(path).await?;
-                    // FIXME preamp ignored
-                    conf.filters.into_iter().map(Filter::from).collect()
+                Some(ext) if ext.eq_ignore_ascii_case("apo") || ext.eq_ignore_ascii_case("txt") => {
+                    let c = apo::Config::parse_file(path).await?;
+                    (c.preamp, c.filters.into_iter().map(Into::into).collect())
                 }
-                _ => anyhow::bail!("file must have an extension of .apo or .conf"),
+                _ => anyhow::bail!("file must have an extension of .apo, .txt or .conf"),
             }
         }
-        (None, Some(preset)) => preset.make_filters(),
-        _ => vec![],
+        (None, Some(preset)) => (0.0, preset.make_filters()),
+        _ => Default::default(),
     };
 
     let term = ratatui::init();
@@ -314,7 +314,7 @@ async fn run_tui(args: TuiArgs) -> anyhow::Result<()> {
         base_config
     };
 
-    let mut app = tui::App::new(term, config, filters)?;
+    let mut app = tui::App::new(term, config, preamp, filters)?;
     app.enter()?;
 
     let events = EventStream::new()

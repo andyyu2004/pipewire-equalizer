@@ -129,7 +129,7 @@ pub async fn set_default(node_id: u32) -> Result<()> {
     Ok(())
 }
 
-pub async fn get_default_audio_sink() -> Result<u32> {
+pub async fn get_default_audio_sink_node_id() -> Result<u32> {
     let output = Command::new("wpctl")
         .arg("inspect")
         .arg("@DEFAULT_AUDIO_SINK@")
@@ -153,6 +153,44 @@ pub async fn get_default_audio_sink() -> Result<u32> {
         .context("Failed to parse node id from wpctl output")?;
 
     Ok(id_str)
+}
+
+#[derive(Debug, Clone)]
+pub struct NodeInfo {
+    pub node_id: u32,
+    pub node_name: String,
+    pub object_serial: i64,
+}
+
+pub async fn get_default_audio_sink() -> Result<NodeInfo> {
+    let node_id = get_default_audio_sink_node_id().await?;
+    let objects = dump().await?;
+
+    let node = objects
+        .into_iter()
+        .find(|obj| obj.id == node_id)
+        .context("Default sink node not found in pw-dump")?;
+
+    let node_name = node
+        .info
+        .props
+        .get("node.name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .context("node.name not found for default sink")?;
+
+    let object_serial = node
+        .info
+        .props
+        .get("object.serial")
+        .and_then(|v| v.as_i64())
+        .context("object.serial not found for default sink")?;
+
+    Ok(NodeInfo {
+        node_id,
+        node_name,
+        object_serial,
+    })
 }
 
 pub fn to_spa_json<T: serde::Serialize>(value: &T) -> String {

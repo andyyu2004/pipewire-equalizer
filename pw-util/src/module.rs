@@ -113,6 +113,7 @@ impl Module {
                 },
                 playback_props: PlaybackProps {
                     node_name: format!("effect_input.pweq.{name}"),
+                    target_object: None,
                     node_passive: false,
                 },
                 capture_props: CaptureProps {
@@ -169,6 +170,15 @@ pub struct PlaybackProps {
     pub node_name: String,
     #[serde(rename = "node.passive")]
     pub node_passive: bool,
+    #[serde(rename = "target.object", skip_serializing_if = "Option::is_none")]
+    pub target_object: Option<TargetObject>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum TargetObject {
+    Serial(i64),
+    NodeName(String),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

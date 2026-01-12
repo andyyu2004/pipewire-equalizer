@@ -4,8 +4,9 @@ mod eq;
 mod theme;
 
 use crate::{FilterId, UpdateFilter, filter::Filter, update_filters, use_eq};
-use pw_util::module::FilterType;
+use pw_util::module::{FilterType, TargetObject};
 use std::collections::HashMap;
+use std::thread;
 use std::{
     error::Error,
     io, mem,
@@ -24,7 +25,7 @@ use crossterm::{
 };
 use futures_util::{Stream, StreamExt as _, future::BoxFuture, stream::FusedStream};
 use keymap::KeyMap;
-use pw_util::pipewire;
+use pw_util::{NodeInfo, pipewire};
 use ratatui::{Terminal, prelude::Backend};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -93,8 +94,8 @@ pub struct App<B: Backend + io::Write> {
     pw_tx: pipewire::channel::Sender<pw::Message>,
     eq: Eq,
     active_node_id: Option<u32>,
-    original_default_sink: Option<u32>,
-    pw_handle: Option<std::thread::JoinHandle<io::Result<()>>>,
+    original_default_sink: Option<NodeInfo>,
+    pw_handle: Option<thread::JoinHandle<io::Result<()>>>,
     sample_rate: u32,
     input_mode: InputMode,
     command_history: Vec<String>,
@@ -208,7 +209,7 @@ where
     ) -> io::Result<Self> {
         let (pw_tx, rx) = pipewire::channel::channel();
         let (notifs_tx, notifs) = mpsc::channel(100);
-        let pw_handle = std::thread::spawn(|| pw_thread(notifs_tx, rx));
+        let pw_handle = thread::spawn(|| pw_thread(notifs_tx, rx));
 
         let (task_tx, task_rx) = mpsc::channel::<BoxFuture<'static, TaskResult>>(100);
         let tasks = Box::pin(ReceiverStream::new(task_rx).buffered(8));
@@ -317,6 +318,8 @@ where
             })
             .ok();
 
+        tracing::info!(?self.original_default_sink, "detected original default sink");
+
         if !self.eq.is_noop() {
             self.load_module();
         }
@@ -344,11 +347,13 @@ where
         let _ = self.pw_tx.send(pw::Message::Terminate);
 
         // Restore the original default sink before exiting
-        if let Some(sink_id) = self.original_default_sink {
-            tracing::info!(sink_id, "Restoring original default sink");
-            pw_util::set_default(sink_id).await.inspect_err(|err| {
-                tracing::error!(error = %err, "Failed to restore original default sink");
-            })?;
+        if let Some(sink) = &self.original_default_sink {
+            tracing::info!(node.id = sink.node_id, "Restoring original default sink");
+            pw_util::set_default(sink.node_id)
+                .await
+                .inspect_err(|err| {
+                    tracing::error!(error = &**err, "Failed to restore original default sink")
+                })?;
         }
 
         if let Some(handle) = self.pw_handle.take() {
@@ -570,9 +575,15 @@ where
     }
 
     fn load_module(&mut self) {
-        let _ = self.pw_tx.send(pw::Message::LoadModule {
+        let pw_tx = self.pw_tx.clone();
+        let mut args = self.eq.to_module_args(self.sample_rate);
+        if let Some(sink) = &self.original_default_sink {
+            args.playback_props.target_object = Some(TargetObject::Serial(sink.object_serial));
+        }
+
+        let _ = pw_tx.send(pw::Message::LoadModule {
             name: "libpipewire-module-filter-chain".into(),
-            args: Box::new(self.eq.to_module_args(self.sample_rate)),
+            args: Box::new(args),
         });
     }
 

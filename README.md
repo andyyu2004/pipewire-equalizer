@@ -13,6 +13,8 @@ PipeWire v1.0+ must be installed and running on your system.
 ## Installation
 
 ```bash
+cargo install --git https://github.com/andyyu2004/pipewire-equalizer
+# Or if cloned locally
 cargo install --path pw-eq
 ```
 

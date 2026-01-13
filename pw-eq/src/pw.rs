@@ -29,14 +29,16 @@ struct AudioStreamInfo {
 
 #[derive(Clone)]
 struct State {
+    default_audio_sink: Option<NodeInfo>,
     metadata: Rc<Mutex<Option<Metadata>>>,
     active_node: Rc<Mutex<Option<NodeInfo>>>,
     audio_stream_nodes: Rc<DashMap<u32, AudioStreamInfo>>,
 }
 
 impl State {
-    fn new() -> Self {
+    fn new(default_audio_sink: Option<NodeInfo>) -> Self {
         Self {
+            default_audio_sink,
             metadata: Rc::new(Mutex::new(None)),
             active_node: Rc::new(Mutex::new(None)),
             audio_stream_nodes: Rc::new(DashMap::new()),
@@ -47,10 +49,8 @@ impl State {
         let metadata_opt = self.metadata.lock().unwrap();
         let active_node_opt = self.active_node.lock().unwrap();
 
-        if let (Some(metadata), Some(filter_node)) =
-            (metadata_opt.as_ref(), active_node_opt.as_ref())
-        {
-            do_route_stream(metadata, stream_node, filter_node);
+        if let (Some(metadata), Some(node)) = (metadata_opt.as_ref(), active_node_opt.as_ref()) {
+            do_route_stream(metadata, stream_node, &node.object_serial.to_string());
         }
     }
 
@@ -58,11 +58,9 @@ impl State {
         let metadata_opt = self.metadata.lock().unwrap();
         let active_node_opt = self.active_node.lock().unwrap();
 
-        if let (Some(metadata), Some(filter_node)) =
-            (metadata_opt.as_ref(), active_node_opt.as_ref())
-        {
+        if let (Some(metadata), Some(node)) = (metadata_opt.as_ref(), active_node_opt.as_ref()) {
             for entry in self.audio_stream_nodes.iter() {
-                do_route_stream(metadata, entry.value(), filter_node);
+                do_route_stream(metadata, entry.value(), &node.object_serial.to_string());
             }
         }
     }
@@ -71,47 +69,49 @@ impl State {
         if let Some(metadata) = self.metadata.lock().unwrap().as_ref() {
             for entry in self.audio_stream_nodes.iter() {
                 let stream_node = entry.value();
-                tracing::info!(
-                    node_id = stream_node.node_id,
-                    stream = %stream_node.node_name,
-                    target = ?stream_node.original_target_object,
-                    "Restoring original target.object for stream"
-                );
-                metadata.set_property(
-                    stream_node.node_id,
-                    "target.object",
-                    Some("Spa:Id"),
-                    stream_node.original_target_object.as_deref(),
-                );
+                let target = if stream_node.original_target_object.is_some() {
+                    stream_node.original_target_object.clone()
+                } else {
+                    self.default_audio_sink
+                        .as_ref()
+                        .map(|sink| sink.object_serial.to_string())
+                };
+
+                if let Some(target) = target {
+                    do_route_stream(metadata, stream_node, &target);
+                }
             }
         }
     }
 }
 
-fn do_route_stream(metadata: &Metadata, stream_node: &AudioStreamInfo, filter_node: &NodeInfo) {
+fn do_route_stream(metadata: &Metadata, stream_node: &AudioStreamInfo, target: &str) {
     metadata.set_property(
         stream_node.node_id,
         "target.object",
         Some("Spa:Id"),
-        Some(filter_node.object_serial.to_string().as_str()),
+        Some(target),
     );
+
     tracing::info!(
+        stream_node_id = stream_node.node_id,
         stream = %stream_node.node_name,
-        target = %filter_node.node_name,
-        "Routed stream to filter"
+        %target,
+        "Routed stream to target"
     );
 }
 
 pub fn pw_thread(
     notifs: mpsc::Sender<Notif>,
     pw_receiver: pipewire::channel::Receiver<Message>,
+    default_audio_sink: Option<NodeInfo>,
 ) -> anyhow::Result<()> {
     let mainloop = MainLoopRc::new(None)?;
     let context = ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(None)?;
     let registry = core.get_registry_rc()?;
 
-    let st = State::new();
+    let st = State::new(default_audio_sink);
 
     // Listen for any `Stream/Output/Audio` nodes and attach them to our sink by
     // setting `target.object` using the default metadata object.

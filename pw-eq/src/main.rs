@@ -364,7 +364,7 @@ async fn run_tui(args: TuiArgs) -> anyhow::Result<()> {
         base_config
     };
 
-    let mut app = tui::App::new(term, config, preamp, filters)?;
+    let mut app = tui::App::new(term, config, preamp, filters).await?;
     app.enter()?;
 
     let events = EventStream::new()

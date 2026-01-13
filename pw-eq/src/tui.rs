@@ -200,15 +200,26 @@ where
     B: Backend + io::Write,
     B::Error: Send + Sync + 'static,
 {
-    pub fn new(
+    pub async fn new(
         term: Terminal<B>,
         config: Config,
         preamp: f64,
         filters: impl IntoIterator<Item = Filter>,
     ) -> io::Result<Self> {
+        let default_audio_sink = match pw_util::get_default_audio_sink().await {
+            Ok(node) => {
+                tracing::info!(?node, "detected default audio sink");
+                Some(node)
+            }
+            Err(err) => {
+                tracing::error!(error = &*err, "failed to get default audio sink");
+                None
+            }
+        };
+
         let (pw_tx, rx) = pipewire::channel::channel();
         let (notifs_tx, notifs) = mpsc::channel(100);
-        let pw_handle = thread::spawn(|| pw_thread(notifs_tx, rx));
+        let pw_handle = thread::spawn(|| pw_thread(notifs_tx, rx, default_audio_sink));
 
         let (task_tx, task_rx) = mpsc::channel::<BoxFuture<'static, TaskResult>>(100);
         let tasks = Box::pin(ReceiverStream::new(task_rx).buffered(8));

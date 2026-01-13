@@ -112,12 +112,12 @@ impl Module {
                     links,
                 },
                 playback_props: PlaybackProps {
-                    node_name: format!("effect_input.pweq.{name}"),
+                    node_name: format!("effect_input.pw-eq.{name}"),
                     target_object: None,
                     node_passive: false,
                 },
                 capture_props: CaptureProps {
-                    node_name: format!("effect_output.pweq.{name}"),
+                    node_name: format!("effect_output.pw-eq.{name}"),
                     media_class: "Audio/Sink".to_string(),
                     pweq_managed: true,
                 },

@@ -74,12 +74,6 @@ pub async fn find_eq_node(profile: &str) -> anyhow::Result<pw_util::PwDumpObject
         .ok_or_else(|| anyhow::anyhow!("EQ '{profile}' not found"))
 }
 
-pub async fn use_eq(profile: &str) -> anyhow::Result<u32> {
-    let node = find_eq_node(profile).await?;
-    pw_util::set_default(node.id).await?;
-    Ok(node.id)
-}
-
 #[derive(Debug, Clone)]
 pub struct UpdateFilter {
     pub frequency: Option<f64>,

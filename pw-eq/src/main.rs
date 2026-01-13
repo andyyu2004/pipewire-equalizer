@@ -4,7 +4,7 @@ use crossterm::event::EventStream;
 use futures_util::StreamExt as _;
 use pw_eq::filter::Filter;
 use pw_eq::tui;
-use pw_eq::{FilterId, find_eq_node, use_eq};
+use pw_eq::{FilterId, find_eq_node};
 use pw_util::apo::{self, FilterType};
 use pw_util::module::{self, FILTER_PREFIX};
 use std::collections::BTreeMap;
@@ -36,9 +36,6 @@ struct CreateArgs {
     /// Path to the file (APO)
     #[arg(short, long)]
     file: PathBuf,
-    /// Set as default sink after creating
-    #[arg(short, long)]
-    r#use: bool,
     /// Overwrite existing EQ configuration if it exists
     #[arg(short, long)]
     force: bool,
@@ -190,7 +187,6 @@ enum Cmd {
     #[clap(alias = "desc")]
     Describe(DescribeArgs),
     Set(SetArgs),
-    Use(UseArgs),
     /// Interactive TUI mode
     Tui(TuiArgs),
 }
@@ -229,9 +225,6 @@ async fn main() -> anyhow::Result<()> {
             }
             Cmd::Describe(describe) => describe_eq(&describe).await?,
             Cmd::Set(set) => set_filter(set).await?,
-            Cmd::Use(use_cmd) => {
-                use_eq(&use_cmd.profile).await?;
-            }
             Cmd::Tui(tui) => run_tui(tui).await?,
         },
     }
@@ -383,14 +376,7 @@ async fn run_tui(args: TuiArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn create_eq(
-    CreateArgs {
-        name,
-        file,
-        r#use: use_after,
-        force,
-    }: CreateArgs,
-) -> anyhow::Result<()> {
+async fn create_eq(CreateArgs { name, file, force }: CreateArgs) -> anyhow::Result<()> {
     // Parse the .apo file
     let apo_config = apo::Config::parse_file(file).await?;
 
@@ -416,10 +402,6 @@ async fn create_eq(
     }
 
     fs::write(&config_file, content).await?;
-
-    if use_after {
-        use_eq(&name).await?;
-    }
 
     Ok(())
 }

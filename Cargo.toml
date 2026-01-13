@@ -11,6 +11,7 @@ members = [
 pw-util = { path = "pw-util" }
 keymap = { path = "keymap" }
 spa-json = { path = "spa-json" }
+pipewire = "0.9.2"
 anyhow = "1.0.100"
 tokio = "1.48.0"
 serde = { version = "1.0.228" }

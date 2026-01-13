@@ -3,12 +3,11 @@ mod draw;
 mod eq;
 mod theme;
 
-use crate::{FilterId, UpdateFilter, filter::Filter, update_filters, use_eq};
+use crate::{FilterId, UpdateFilter, filter::Filter, update_filters};
 use pw_util::module::{FilterType, TargetObject};
 use std::collections::HashMap;
 use std::thread;
 use std::{
-    error::Error,
     io, mem,
     num::NonZero,
     ops::ControlFlow,
@@ -95,7 +94,7 @@ pub struct App<B: Backend + io::Write> {
     eq: Eq,
     active_node_id: Option<u32>,
     original_default_sink: Option<NodeInfo>,
-    pw_handle: Option<thread::JoinHandle<io::Result<()>>>,
+    pw_handle: Option<thread::JoinHandle<anyhow::Result<()>>>,
     sample_rate: u32,
     input_mode: InputMode,
     command_history: Vec<String>,
@@ -287,7 +286,10 @@ where
         match self.task_tx.try_send(Box::pin(fut)) {
             Ok(()) => {}
             Err(err) => {
-                tracing::error!(error = %err, "failed to schedule task");
+                tracing::error!(
+                    error = &err as &dyn std::error::Error,
+                    "failed to schedule task"
+                );
             }
         }
     }
@@ -309,16 +311,6 @@ where
             cursor::Show,
             cursor::SetCursorStyle::SteadyBar,
         )?;
-
-        // Save the current default sink so we can restore it on exit
-        self.original_default_sink = pw_util::get_default_audio_sink()
-            .await
-            .inspect_err(|err| {
-                tracing::warn!(error = %err, "Failed to get default audio sink");
-            })
-            .ok();
-
-        tracing::info!(?self.original_default_sink, "detected original default sink");
 
         if !self.eq.is_noop() {
             self.load_module();
@@ -346,23 +338,10 @@ where
 
         let _ = self.pw_tx.send(pw::Message::Terminate);
 
-        // Restore the original default sink before exiting
-        if let Some(sink) = &self.original_default_sink {
-            tracing::info!(node.id = sink.node_id, "Restoring original default sink");
-            pw_util::set_default(sink.node_id)
-                .await
-                .inspect_err(|err| {
-                    tracing::error!(error = &**err, "Failed to restore original default sink")
-                })?;
-        }
-
         if let Some(handle) = self.pw_handle.take() {
             match handle.join() {
                 Ok(Ok(())) => tracing::info!("PipeWire thread exited cleanly"),
-                Ok(Err(err)) => tracing::error!(
-                    error = &err as &dyn Error,
-                    "PipeWire thread exited with error"
-                ),
+                Ok(Err(err)) => tracing::error!(error = &*err, "PipeWire thread exited with error"),
                 Err(err) => tracing::error!(error = ?err, "PipeWire thread panicked"),
             }
         }
@@ -380,11 +359,14 @@ where
             } => {
                 tracing::info!(id, name, media_name, "module loaded");
 
-                let Ok(node_id) = use_eq(&media_name).await.inspect_err(|err| {
-                    tracing::error!(error = %err, "failed to use EQ");
+                // Find the filter's output node (capture side) by media.name
+                let Ok(node) = crate::find_eq_node(&media_name).await.inspect_err(|err| {
+                    tracing::error!(error = &**err, "failed to find EQ node");
                 }) else {
                     return;
                 };
+
+                let node_id = node.id;
 
                 if reused {
                     // If the module was reused, it may have stale filter settings
@@ -392,9 +374,24 @@ where
                 }
 
                 self.active_node_id = Some(node_id);
+                if let Err(err) = self.pw_tx.send(pw::Message::SetActiveNode(NodeInfo {
+                    node_id,
+                    node_name: media_name,
+                    object_serial: node
+                        .info
+                        .props
+                        .get("object.serial")
+                        .and_then(|v| v.as_i64())
+                        .expect("object.serial missing or malformed"),
+                })) {
+                    tracing::error!(
+                        error = ?err,
+                        "failed to set active node"
+                    );
+                }
             }
             Notif::Error(err) => {
-                tracing::error!(error = &*err, "PipeWire error");
+                tracing::error!(error = &*err, "PipeWire error")
             }
         }
     }

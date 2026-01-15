@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "autoeq-api",
     "keymap",
     "pw-eq",
     "pw-util",
@@ -8,6 +9,7 @@ members = [
 ]
 
 [workspace.dependencies]
+autoeq-api = { path = "autoeq-api" }
 pw-util = { path = "pw-util" }
 keymap = { path = "keymap" }
 spa-json = { path = "spa-json" }

@@ -52,6 +52,140 @@ enum ViewMode {
     Expert,
 }
 
+#[derive(Clone, Copy, PartialEq, Default)]
+enum Tab {
+    #[default]
+    Equalizer,
+    AutoEq,
+}
+
+struct AutoEqBrowser {
+    filter_query: String,
+    filter_cursor_pos: usize,
+    filtering: bool,
+    entries: Option<autoeq_api::Entries>,
+    targets: Option<Vec<autoeq_api::Target>>,
+    filtered_results: Vec<(String, autoeq_api::Entry)>,
+    selected_index: usize,
+    selected_target_index: usize,
+    loading: bool,
+}
+
+impl Default for AutoEqBrowser {
+    fn default() -> Self {
+        Self {
+            filter_query: String::new(),
+            filter_cursor_pos: 0,
+            filtering: false,
+            entries: None,
+            targets: None,
+            filtered_results: Vec::new(),
+            selected_index: 0,
+            selected_target_index: 0,
+            loading: false,
+        }
+    }
+}
+
+impl AutoEqBrowser {
+    fn update_filtered_results(&mut self) {
+        let Some(entries) = &self.entries else {
+            self.filtered_results.clear();
+            return;
+        };
+
+        let query = self.filter_query.to_lowercase();
+        self.filtered_results = entries
+            .iter()
+            .flat_map(|(name, entries)| {
+                entries
+                    .iter()
+                    .map(move |entry| (name.clone(), entry.clone()))
+            })
+            .filter(|(name, _)| {
+                if query.is_empty() {
+                    true
+                } else {
+                    name.to_lowercase().contains(&query)
+                }
+            })
+            .collect();
+
+        // Reset selection if out of bounds
+        if self.selected_index >= self.filtered_results.len() {
+            self.selected_index = 0;
+        }
+    }
+
+    fn selected_entry(&self) -> Option<&(String, autoeq_api::Entry)> {
+        self.filtered_results.get(self.selected_index)
+    }
+
+    fn selected_target(&self) -> Option<&autoeq_api::Target> {
+        self.targets.as_ref()?.get(self.selected_target_index)
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AutoEqCache {
+    entries: autoeq_api::Entries,
+    targets: Vec<autoeq_api::Target>,
+    timestamp: u64,
+}
+
+impl AutoEqCache {
+    const CACHE_DURATION_SECS: u64 = 24 * 60 * 60; // 24 hours
+
+    fn cache_path() -> anyhow::Result<PathBuf> {
+        let cache_dir = dirs::cache_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not find cache directory"))?
+            .join("pw-eq");
+        std::fs::create_dir_all(&cache_dir)?;
+        Ok(cache_dir.join("autoeq-cache.json"))
+    }
+
+    async fn load() -> anyhow::Result<Option<Self>> {
+        let path = Self::cache_path()?;
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let data = tokio::fs::read_to_string(&path).await?;
+        let cache: Self = serde_json::from_str(&data)?;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+
+        if now - cache.timestamp > Self::CACHE_DURATION_SECS {
+            return Ok(None);
+        }
+
+        Ok(Some(cache))
+    }
+
+    async fn save(
+        entries: autoeq_api::Entries,
+        targets: Vec<autoeq_api::Target>,
+    ) -> anyhow::Result<()> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+
+        let cache = Self {
+            entries,
+            targets,
+            timestamp,
+        };
+
+        let path = Self::cache_path()?;
+        let data = serde_json::to_string_pretty(&cache)?;
+        tokio::fs::write(&path, data).await?;
+
+        Ok(())
+    }
+}
+
 #[derive(
     Debug,
     Copy,
@@ -73,11 +207,19 @@ enum InputMode {
 }
 
 pub enum Notif {
-    ModuleLoaded {
+    PwModuleLoaded {
         id: u32,
         name: String,
         media_name: String,
         reused: bool,
+    },
+    AutoEqDbLoaded {
+        entries: autoeq_api::Entries,
+        targets: Vec<autoeq_api::Target>,
+    },
+    AutoEqLoaded {
+        name: String,
+        response: autoeq_api::ParametricEq,
     },
     Error(anyhow::Error),
 }
@@ -88,6 +230,7 @@ pub type Task = BoxFuture<'static, TaskResult>;
 pub struct App<B: Backend + io::Write> {
     term: Terminal<B>,
     notifs: mpsc::Receiver<Notif>,
+    notifs_tx: mpsc::Sender<Notif>,
     tasks: Pin<Box<dyn FusedStream<Item = TaskResult> + Send>>,
     task_tx: mpsc::Sender<Task>,
     pw_tx: pipewire::channel::Sender<pw::Message>,
@@ -106,6 +249,9 @@ pub struct App<B: Backend + io::Write> {
     status: Option<Result<String, String>>,
     view_mode: ViewMode,
     config: Config,
+    tab: Tab,
+    autoeq_browser: AutoEqBrowser,
+    http_client: reqwest::Client,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -142,6 +288,7 @@ impl Default for Config {
                     "b":         "toggle-bypass",
                     "a":         "add-filter",
                     "x":         "remove-filter",
+                    "<S-A>":     "open-auto-eq",
                     "<Esc>":   { "enter-mode": "normal" },
                     ":":       { "enter-mode": "command" },
                     "1":       { "select-index": 0 },
@@ -219,7 +366,8 @@ where
 
         let (pw_tx, rx) = pipewire::channel::channel();
         let (notifs_tx, notifs) = mpsc::channel(100);
-        let pw_handle = thread::spawn(|| pw_thread(notifs_tx, rx, default_audio_sink));
+        let pw_notifs_tx = notifs_tx.clone();
+        let pw_handle = thread::spawn(|| pw_thread(pw_notifs_tx, rx, default_audio_sink));
 
         let (task_tx, task_rx) = mpsc::channel::<BoxFuture<'static, TaskResult>>(100);
         let tasks = Box::pin(ReceiverStream::new(task_rx).buffered(8));
@@ -272,6 +420,7 @@ where
             term,
             pw_tx,
             notifs,
+            notifs_tx,
             tasks,
             task_tx,
             eq,
@@ -290,6 +439,9 @@ where
             show_help: Default::default(),
             view_mode: Default::default(),
             status: Default::default(),
+            tab: Tab::Equalizer,
+            autoeq_browser: AutoEqBrowser::default(),
+            http_client: reqwest::Client::new(),
         })
     }
 
@@ -362,7 +514,7 @@ where
 
     async fn on_notif(&mut self, notif: Notif) {
         match notif {
-            Notif::ModuleLoaded {
+            Notif::PwModuleLoaded {
                 id,
                 name,
                 media_name,
@@ -401,8 +553,65 @@ where
                     );
                 }
             }
+            Notif::AutoEqDbLoaded { entries, targets } => {
+                self.autoeq_browser.entries = Some(entries);
+                self.autoeq_browser.targets = Some(targets);
+                self.autoeq_browser.loading = false;
+                self.autoeq_browser.update_filtered_results();
+
+                // Select default target (Harman over-ear 2018 if available)
+                if let Some(targets) = &self.autoeq_browser.targets
+                    && let Some(idx) = targets
+                        .iter()
+                        .position(|t| t.label.contains("Harman") && t.label.contains("over-ear"))
+                {
+                    self.autoeq_browser.selected_target_index = idx;
+                }
+
+                self.status = Some(Ok(format!(
+                    "Loaded {} headphones",
+                    self.autoeq_browser.filtered_results.len()
+                )));
+            }
+            Notif::AutoEqLoaded { name, response } => {
+                tracing::info!(
+                    headphone = name,
+                    num_filters = response.filters.len(),
+                    "AutoEQ applied"
+                );
+                self.tab = Tab::Equalizer;
+                let num_filters = response.filters.len();
+                self.eq.preamp = response.preamp;
+                self.eq.filters = response
+                    .filters
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, f)| {
+                        use pw_util::module::FilterType;
+                        // First filter might be low shelf, last might be high shelf
+                        // Everything else is peaking
+                        let filter_type = if idx == 0 && f.fc < 100.0 {
+                            FilterType::LowShelf
+                        } else if idx == num_filters - 1 && f.fc > 8000.0 {
+                            FilterType::HighShelf
+                        } else {
+                            FilterType::Peaking
+                        };
+
+                        Filter {
+                            frequency: f.fc,
+                            gain: f.gain,
+                            q: f.q,
+                            filter_type,
+                            muted: false,
+                        }
+                    })
+                    .collect();
+                self.status = Some(Ok(format!("Applied EQ for {}", name)));
+            }
             Notif::Error(err) => {
-                tracing::error!(error = &*err, "PipeWire error")
+                tracing::error!(error = &*err, "error from notification");
+                self.status = Some(Err(err.to_string()));
             }
         }
     }
@@ -464,6 +673,89 @@ where
 
     fn handle_normal_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
         assert!(matches!(self.input_mode, InputMode::Normal));
+
+        // Special handling for AutoEQ browser
+        if self.tab == Tab::AutoEq {
+            if self.autoeq_browser.filtering {
+                // Filter input mode
+                match key.code() {
+                    KeyCode::Char(c)
+                        if !key.modifiers().contains(KeyModifiers::CONTROL)
+                            && !key.modifiers().contains(KeyModifiers::ALT) =>
+                    {
+                        self.autoeq_browser
+                            .filter_query
+                            .insert(self.autoeq_browser.filter_cursor_pos, c);
+                        self.autoeq_browser.filter_cursor_pos += 1;
+                        self.autoeq_browser.update_filtered_results();
+                        return Ok(ControlFlow::Continue(()));
+                    }
+                    KeyCode::Backspace => {
+                        if self.autoeq_browser.filter_cursor_pos > 0 {
+                            self.autoeq_browser
+                                .filter_query
+                                .remove(self.autoeq_browser.filter_cursor_pos - 1);
+                            self.autoeq_browser.filter_cursor_pos -= 1;
+                            self.autoeq_browser.update_filtered_results();
+                        }
+                        return Ok(ControlFlow::Continue(()));
+                    }
+                    KeyCode::Left => {
+                        self.autoeq_browser.filter_cursor_pos =
+                            self.autoeq_browser.filter_cursor_pos.saturating_sub(1);
+                        return Ok(ControlFlow::Continue(()));
+                    }
+                    KeyCode::Right => {
+                        if self.autoeq_browser.filter_cursor_pos
+                            < self.autoeq_browser.filter_query.len()
+                        {
+                            self.autoeq_browser.filter_cursor_pos += 1;
+                        }
+                        return Ok(ControlFlow::Continue(()));
+                    }
+                    KeyCode::Esc | KeyCode::Enter => {
+                        self.autoeq_browser.filtering = false;
+                        return Ok(ControlFlow::Continue(()));
+                    }
+                    _ => return Ok(ControlFlow::Continue(())),
+                }
+            } else {
+                // Normal AutoEQ navigation
+                match key.code() {
+                    KeyCode::Char('/') => {
+                        return self.perform(Action::EnterAutoEqFilter);
+                    }
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        if self.autoeq_browser.selected_index + 1
+                            < self.autoeq_browser.filtered_results.len()
+                        {
+                            self.autoeq_browser.selected_index += 1;
+                        }
+                        return Ok(ControlFlow::Continue(()));
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        self.autoeq_browser.selected_index =
+                            self.autoeq_browser.selected_index.saturating_sub(1);
+                        return Ok(ControlFlow::Continue(()));
+                    }
+                    KeyCode::Char('t') => {
+                        return self.perform(Action::CycleAutoEqTarget(Rotation::Clockwise));
+                    }
+                    KeyCode::Char('T') => {
+                        return self.perform(Action::CycleAutoEqTarget(Rotation::CounterClockwise));
+                    }
+                    KeyCode::Enter => {
+                        return self.perform(Action::ApplyAutoEq);
+                    }
+                    KeyCode::Esc => {
+                        return self.perform(Action::CloseAutoEq);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Fall back to configured keymappings
         if let Some(action) = self.config.keymap.get(&self.input_mode, &key) {
             match self.perform(*action)? {
                 ControlFlow::Continue(()) => {}
@@ -546,6 +838,34 @@ where
             }
             Action::MoveCursorHome => self.command_cursor_pos = 0,
             Action::MoveCursorEnd => self.command_cursor_pos = self.command_buffer.len(),
+            Action::OpenAutoEq => self.open_autoeq(),
+            Action::CloseAutoEq => {
+                self.tab = Tab::Equalizer;
+            }
+            Action::ApplyAutoEq => {
+                self.apply_selected_autoeq();
+            }
+            Action::EnterAutoEqFilter => {
+                self.autoeq_browser.filtering = true;
+            }
+            Action::CycleAutoEqTarget(rotation) => {
+                if let Some(targets) = &self.autoeq_browser.targets {
+                    let len = targets.len();
+                    match rotation {
+                        Rotation::Clockwise => {
+                            self.autoeq_browser.selected_target_index =
+                                (self.autoeq_browser.selected_target_index + 1) % len;
+                        }
+                        Rotation::CounterClockwise => {
+                            self.autoeq_browser.selected_target_index = self
+                                .autoeq_browser
+                                .selected_target_index
+                                .checked_sub(1)
+                                .unwrap_or(len - 1);
+                        }
+                    }
+                }
+            }
         }
 
         if let Some(node_id) = self.active_node_id {
@@ -582,6 +902,11 @@ where
         Ok(ControlFlow::Continue(()))
     }
 
+    fn open_autoeq(&mut self) {
+        self.tab = Tab::AutoEq;
+        self.load_autoeq_data();
+    }
+
     fn load_module(&mut self) {
         let pw_tx = self.pw_tx.clone();
         let mut args = self.eq.to_module_args(self.sample_rate);
@@ -592,6 +917,115 @@ where
         let _ = pw_tx.send(pw::Message::LoadModule {
             name: "libpipewire-module-filter-chain".into(),
             args: Box::new(args),
+        });
+    }
+
+    fn load_autoeq_data(&mut self) {
+        if self.autoeq_browser.entries.is_some() && self.autoeq_browser.targets.is_some() {
+            // Already loaded
+            return;
+        }
+
+        self.autoeq_browser.loading = true;
+
+        let client = self.http_client.clone();
+        let notifs_tx = self.notifs_tx.clone();
+
+        tokio::spawn(async move {
+            // Try to load from cache first
+            let (entries, targets) = match AutoEqCache::load().await {
+                Ok(Some(cache)) => {
+                    tracing::info!("Loaded AutoEQ data from cache");
+                    (cache.entries, cache.targets)
+                }
+                Ok(None) => {
+                    tracing::info!("Cache miss or expired, fetching from API");
+                    // Fetch from API
+                    match tokio::try_join!(
+                        autoeq_api::entries(&client),
+                        autoeq_api::targets(&client)
+                    ) {
+                        Ok((entries, targets)) => {
+                            // Save to cache
+                            if let Err(err) =
+                                AutoEqCache::save(entries.clone(), targets.clone()).await
+                            {
+                                tracing::warn!(error = &*err, "Failed to save autoeq cache");
+                            }
+                            (entries, targets)
+                        }
+                        Err(err) => {
+                            let _ = notifs_tx.send(Notif::Error(err.into())).await;
+                            return;
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(error = &*err, "Failed to load cache");
+                    // Try fetching from API if cache load fails
+                    match tokio::try_join!(
+                        autoeq_api::entries(&client),
+                        autoeq_api::targets(&client)
+                    ) {
+                        Ok((entries, targets)) => {
+                            if let Err(err) =
+                                AutoEqCache::save(entries.clone(), targets.clone()).await
+                            {
+                                tracing::warn!(error = &*err, "Failed to save cache");
+                            }
+                            (entries, targets)
+                        }
+                        Err(err) => {
+                            let _ = notifs_tx.send(Notif::Error(err.into())).await;
+                            return;
+                        }
+                    }
+                }
+            };
+
+            let _ = notifs_tx
+                .send(Notif::AutoEqDbLoaded { entries, targets })
+                .await;
+        });
+    }
+
+    fn apply_selected_autoeq(&mut self) {
+        let Some((name, entry)) = self.autoeq_browser.selected_entry().cloned() else {
+            self.status = Some(Err("No headphone selected".to_string()));
+            return;
+        };
+
+        let Some(target) = self.autoeq_browser.selected_target() else {
+            self.status = Some(Err("No target selected".to_string()));
+            return;
+        };
+
+        let target_label = target.label.clone();
+        let source = entry.source.clone();
+        let rig = entry.rig.clone();
+
+        let client = self.http_client.clone();
+        let notifs_tx = self.notifs_tx.clone();
+        self.status = Some(Ok(format!("Fetching EQ for {name} by {source}...")));
+
+        let sample_rate = self.sample_rate;
+        tokio::spawn(async move {
+            let request = autoeq_api::EqualizeRequest {
+                target: target_label.clone(),
+                name: name.clone(),
+                source,
+                rig,
+                sample_rate,
+            };
+
+            match autoeq_api::equalize(&client, &request).await {
+                Ok(response) => {
+                    let _ = notifs_tx.send(Notif::AutoEqLoaded { name, response }).await;
+                }
+                Err(err) => {
+                    let _ = notifs_tx.send(Notif::Error(err.into())).await;
+                }
+            }
         });
     }
 
@@ -741,6 +1175,7 @@ where
 
         match &words[..] {
             ["q" | "quit"] => return Ok(ControlFlow::Break(())),
+            ["autoeq"] => self.open_autoeq(),
             [cmd @ ("w" | "write" | "w!" | "write!"), args @ ..] => {
                 let force = cmd.ends_with('!');
                 let mut path = match args {

@@ -2,14 +2,14 @@ use std::collections::BTreeMap;
 
 pub type Entries = BTreeMap<String, Vec<Entry>>;
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Entry {
     pub form: Form,
     pub rig: Option<String>,
     pub source: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Form {
     Earbud,
@@ -27,7 +27,7 @@ pub async fn entries(client: &reqwest::Client) -> reqwest::Result<Entries> {
         .await
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Target {
     pub label: String,
@@ -36,11 +36,11 @@ pub struct Target {
     pub bass_boost: Filter,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Filter {
-    pub fc: f32,
-    pub q: f32,
-    pub gain: f32,
+    pub fc: f64,
+    pub q: f64,
+    pub gain: f64,
 }
 
 pub async fn targets(client: &reqwest::Client) -> reqwest::Result<Vec<Target>> {
@@ -68,7 +68,7 @@ pub struct ResponseRequirements {
     pub base64fp16: bool,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ParametricEq {
     #[serde(rename = "fs")]
     pub sample_rate: i64,
@@ -84,7 +84,7 @@ pub struct EqualizeRequest {
     /// Measurement source, e.g. "oratory1990"
     pub source: String,
     /// Measurement rig, e.g. "GRAS 45BC-10"
-    pub rig: String,
+    pub rig: Option<String>,
     pub sample_rate: u32,
 }
 
@@ -99,7 +99,8 @@ pub async fn equalize(
         parametric_eq: bool,
         name: String,
         source: String,
-        rig: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        rig: Option<String>,
         response: ResponseRequirements,
         fs: u32,
         // The rest all have reasonable defaults on the server side.

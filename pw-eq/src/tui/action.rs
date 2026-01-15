@@ -29,6 +29,11 @@ pub enum Action {
     MoveCursorRight,
     MoveCursorHome,
     MoveCursorEnd,
+    OpenAutoEq,
+    CloseAutoEq,
+    ApplyAutoEq,
+    EnterAutoEqFilter,
+    CycleAutoEqTarget(Rotation),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -73,6 +78,11 @@ impl Action {
                 InputMode::Normal => Some("normal mode"),
                 InputMode::Command => Some("command mode"),
             },
+            Action::OpenAutoEq => Some("autoeq"),
+            Action::CloseAutoEq => Some("close autoeq"),
+            Action::ApplyAutoEq => Some("apply"),
+            Action::EnterAutoEqFilter => Some("filter"),
+            Action::CycleAutoEqTarget(_) => Some("cycle target"),
             Action::ExecuteCommand
             | Action::ClearStatus
             | Action::CommandHistoryPrevious

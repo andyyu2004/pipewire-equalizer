@@ -1930,6 +1930,7 @@ name = "pw-eq"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "autoeq-api",
  "clap",
  "crossterm 0.29.0",
  "dashmap",
@@ -1939,6 +1940,7 @@ dependencies = [
  "pipewire",
  "pw-util",
  "ratatui",
+ "reqwest",
  "serde",
  "serde_json",
  "shellexpand",

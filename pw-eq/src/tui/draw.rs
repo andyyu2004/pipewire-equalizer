@@ -1,4 +1,4 @@
-use super::{App, Eq, InputMode, ViewMode, theme::Theme};
+use super::{App, Eq, InputMode, Tab, ViewMode, theme::Theme};
 use pw_util::module::FilterType;
 use ratatui::{
     layout::Direction,
@@ -18,6 +18,13 @@ where
     B::Error: Send + Sync + 'static,
 {
     pub(super) fn draw(&mut self) -> anyhow::Result<()> {
+        match self.tab {
+            Tab::Equalizer => self.draw_eq_tab(),
+            Tab::AutoEq => self.draw_autoeq_tab(),
+        }
+    }
+
+    fn draw_eq_tab(&mut self) -> anyhow::Result<()> {
         let eq = &self.eq;
         let sample_rate = self.sample_rate;
         let view_mode = self.view_mode;
@@ -129,6 +136,136 @@ where
                 ));
             }
         })?;
+        Ok(())
+    }
+
+    fn draw_autoeq_tab(&mut self) -> anyhow::Result<()> {
+        let theme = &self.config.theme;
+        let browser = &self.autoeq_browser;
+
+        self.term.draw(|f| {
+            // Set background color
+            f.render_widget(
+                Block::default().style(Style::default().bg(theme.background)),
+                f.area(),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3), // Header with target
+                    Constraint::Min(10),   // Results table
+                    Constraint::Length(1), // Footer with filter/help
+                ])
+                .split(f.area());
+
+            // Header showing current target
+            let target_text = if let Some(targets) = &browser.targets {
+                if let Some(target) = targets.get(browser.selected_target_index) {
+                    format!("AutoEQ Browser - Target: {}", target.label)
+                } else {
+                    "AutoEQ Browser - Target: (none)".to_string()
+                }
+            } else {
+                "AutoEQ Browser - Loading...".to_string()
+            };
+
+            let header = Paragraph::new(Line::from(vec![Span::styled(
+                target_text,
+                Style::default()
+                    .fg(theme.header)
+                    .add_modifier(Modifier::BOLD),
+            )]))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .padding(Padding::horizontal(1)),
+            );
+            f.render_widget(header, chunks[0]);
+
+            // Results table
+            if browser.loading {
+                let loading = Paragraph::new("Loading headphone database...").block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(theme.border))
+                        .padding(Padding::horizontal(1)),
+                );
+                f.render_widget(loading, chunks[1]);
+            } else if browser.filtered_results.is_empty() {
+                let empty = Paragraph::new("No results found. Press / to filter.")
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(theme.border))
+                            .padding(Padding::horizontal(1)),
+                    );
+                f.render_widget(empty, chunks[1]);
+            } else {
+                let rows: Vec<Row> = browser
+                    .filtered_results
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (name, entry))| {
+                        let is_selected = idx == browser.selected_index;
+                        let style = if is_selected {
+                            Style::default().bg(theme.selected_row).fg(theme.background)
+                        } else {
+                            Style::default()
+                        };
+
+                        Row::new(vec![
+                            Cell::from(name.as_str()),
+                            Cell::from(entry.source.as_str()),
+                            Cell::from(entry.rig.as_deref().unwrap_or("-")),
+                        ])
+                        .style(style)
+                    })
+                    .collect();
+
+                let results_table = Table::new(
+                    rows,
+                    [
+                        Constraint::Percentage(50),
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                    ],
+                )
+                .header(
+                    Row::new(vec!["Headphone", "Source", "Rig"])
+                        .style(Style::default().add_modifier(Modifier::BOLD)),
+                )
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(theme.border))
+                        .title(format!(" {} results ", browser.filtered_results.len()))
+                        .padding(Padding::horizontal(1)),
+                );
+                f.render_widget(results_table, chunks[1]);
+            }
+
+            // Footer with filter query or help
+            let footer_text = if browser.filtering {
+                format!("/{}", browser.filter_query)
+            } else if browser.filter_query.is_empty() {
+                "/: filter | t/T: cycle target | Enter: apply | Esc: close | j/k: navigate"
+                    .to_string()
+            } else {
+                format!(
+                    "Filtered by: {} | /: change filter | t/T: target | Enter: apply | Esc: close",
+                    browser.filter_query
+                )
+            };
+
+            let footer = Paragraph::new(Line::from(vec![Span::styled(
+                footer_text,
+                Style::default().fg(theme.footer),
+            )]));
+            f.render_widget(footer, chunks[2]);
+        })?;
+
         Ok(())
     }
 }

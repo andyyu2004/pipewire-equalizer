@@ -219,7 +219,7 @@ pub fn pw_thread(
                 };
 
                 let info = module.info();
-                let _ = notifs.blocking_send(Notif::ModuleLoaded {
+                let _ = notifs.blocking_send(Notif::PwModuleLoaded {
                     id: info.id(),
                     name: info.name().to_string(),
                     media_name: args.media_name.clone(),

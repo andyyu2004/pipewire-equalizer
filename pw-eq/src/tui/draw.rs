@@ -1,4 +1,4 @@
-use super::{App, Eq, InputMode, ViewMode, theme::Theme};
+use super::{App, Eq, InputMode, Tab, ViewMode, theme::Theme};
 use pw_util::module::FilterType;
 use ratatui::{
     layout::Direction,
@@ -17,7 +17,48 @@ where
     B: Backend + io::Write,
     B::Error: Send + Sync + 'static,
 {
+    fn footer_height(help_len: usize, show_help: bool, terminal_width: u16) -> u16 {
+        if show_help {
+            let lines_needed =
+                (help_len + terminal_width as usize - 1) / terminal_width.max(1) as usize;
+            lines_needed.clamp(1, 5) as u16
+        } else {
+            1
+        }
+    }
+
+    fn render_footer(&self, help_text: String) -> Paragraph<'static> {
+        let theme = &self.config.theme;
+
+        match &self.input_mode {
+            InputMode::Command => {
+                // Buffer always contains the prefix (: or /)
+                Paragraph::new(self.command_buffer.clone()).style(Style::default().fg(theme.footer))
+            }
+            InputMode::Eq | InputMode::AutoEq if self.status.is_some() => {
+                let (msg, color) = match self.status.as_ref().unwrap() {
+                    Ok(msg) => (msg.to_owned(), theme.status_ok),
+                    Err(msg) => (msg.to_owned(), theme.status_error),
+                };
+                Paragraph::new(msg).style(Style::default().fg(color))
+            }
+            InputMode::Eq | InputMode::AutoEq if self.show_help => Paragraph::new(help_text)
+                .style(Style::default().fg(theme.help))
+                .wrap(Wrap { trim: true }),
+            InputMode::Eq | InputMode::AutoEq => {
+                Paragraph::new("Press ? for help").style(Style::default().fg(theme.footer))
+            }
+        }
+    }
+
     pub(super) fn draw(&mut self) -> anyhow::Result<()> {
+        match self.tab {
+            Tab::Eq => self.draw_eq_tab(),
+            Tab::AutoEq => self.draw_autoeq_tab(),
+        }
+    }
+
+    fn draw_eq_tab(&mut self) -> anyhow::Result<()> {
         let eq = &self.eq;
         let sample_rate = self.sample_rate;
         let view_mode = self.view_mode;
@@ -29,23 +70,16 @@ where
             String::new()
         };
 
+        let help_len = help_text.len();
+        let footer = self.render_footer(help_text);
+
         self.term.draw(|f| {
             // Set background color for the entire frame
             f.render_widget(
                 Block::default().style(Style::default().bg(theme.background)),
                 f.area(),
             );
-            // Calculate footer height dynamically based on help text length
-            let footer_height = if self.show_help {
-                let terminal_width = f.area().width as usize;
-                let help_len = help_text.len();
-                // Calculate how many lines are needed for the help text
-                let lines_needed = (help_len + terminal_width - 1) / terminal_width.max(1);
-                // Clamp to a reasonable range (min 1, max 5)
-                lines_needed.clamp(1, 5) as u16
-            } else {
-                1
-            };
+            let footer_height = Self::footer_height(help_len, self.show_help, f.area().width);
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -103,32 +137,130 @@ where
 
             draw_frequency_response(f, chunks[2], eq, sample_rate, theme);
 
-            let footer = match &self.input_mode {
-                InputMode::Command => Paragraph::new(format!(":{}", self.command_buffer))
-                    .style(Style::default().fg(theme.footer)),
-                InputMode::Normal if self.status.is_some() => {
-                    let (msg, color) = match self.status.as_ref().unwrap() {
-                        Ok(msg) => (msg.as_str(), self.config.theme.status_ok),
-                        Err(msg) => (msg.as_str(), self.config.theme.status_error),
-                    };
-                    Paragraph::new(msg).style(Style::default().fg(color))
-                }
-                InputMode::Normal if self.show_help => Paragraph::new(help_text)
-                    .style(Style::default().fg(theme.help))
-                    .wrap(Wrap { trim: true }),
-                InputMode::Normal => {
-                    Paragraph::new("Press ? for help").style(Style::default().fg(theme.footer))
-                }
-            };
-            f.render_widget(footer, chunks[3]);
+            f.render_widget(footer.clone(), chunks[3]);
 
             if let InputMode::Command = &self.input_mode {
-                f.set_cursor_position((
-                    chunks[3].x + 1 + self.command_cursor_pos as u16,
-                    chunks[3].y,
-                ));
+                f.set_cursor_position((chunks[3].x + self.command_cursor_pos as u16, chunks[3].y));
             }
         })?;
+        Ok(())
+    }
+
+    fn draw_autoeq_tab(&mut self) -> anyhow::Result<()> {
+        let theme = &self.config.theme;
+        let browser = &self.autoeq_browser;
+        let help_text = self.generate_help_text();
+
+        let help_len = help_text.len();
+        let footer = self.render_footer(help_text);
+
+        self.term.draw(|f| {
+            // Set background color
+            f.render_widget(
+                Block::default().style(Style::default().bg(theme.background)),
+                f.area(),
+            );
+
+            let footer_height = Self::footer_height(help_len, self.show_help, f.area().width);
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),             // Header with target
+                    Constraint::Min(10),               // Results table
+                    Constraint::Length(footer_height), // Footer
+                ])
+                .split(f.area());
+
+            // Header showing current target
+            let target_text = if let Some(targets) = &browser.targets {
+                if let Some(target) = targets.get(browser.selected_target_index) {
+                    format!("AutoEQ Browser - Target: {}", target.label)
+                } else {
+                    "AutoEQ Browser - Target: (none)".to_string()
+                }
+            } else {
+                "AutoEQ Browser - Loading...".to_string()
+            };
+
+            let header = Paragraph::new(Line::from(vec![Span::styled(
+                target_text,
+                Style::default()
+                    .fg(theme.header)
+                    .add_modifier(Modifier::BOLD),
+            )]))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .padding(Padding::horizontal(1)),
+            );
+            f.render_widget(header, chunks[0]);
+
+            // Results table
+            if browser.loading {
+                let loading = Paragraph::new("Loading headphone database...").block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(theme.border))
+                        .padding(Padding::horizontal(1)),
+                );
+                f.render_widget(loading, chunks[1]);
+            } else if browser.filtered_results.is_empty() {
+                let empty = Paragraph::new("No results found. Press / to filter.").block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(theme.border))
+                        .padding(Padding::horizontal(1)),
+                );
+                f.render_widget(empty, chunks[1]);
+            } else {
+                let rows: Vec<Row> = browser
+                    .filtered_results
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (name, entry))| {
+                        let is_selected = idx == browser.selected_index;
+                        let style = if is_selected {
+                            Style::default().bg(theme.selected_row).fg(theme.background)
+                        } else {
+                            Style::default()
+                        };
+
+                        Row::new(vec![
+                            Cell::from(name.as_str()),
+                            Cell::from(entry.source.as_str()),
+                            Cell::from(entry.rig.as_deref().unwrap_or("-")),
+                        ])
+                        .style(style)
+                    })
+                    .collect();
+
+                let results_table = Table::new(
+                    rows,
+                    [
+                        Constraint::Percentage(50),
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                    ],
+                )
+                .header(
+                    Row::new(vec!["Headphone", "Source", "Rig"])
+                        .style(Style::default().add_modifier(Modifier::BOLD)),
+                )
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(theme.border))
+                        .title(format!(" {} results ", browser.filtered_results.len()))
+                        .padding(Padding::horizontal(1)),
+                );
+                f.render_widget(results_table, chunks[1]);
+            }
+
+            f.render_widget(footer.clone(), chunks[2]);
+        })?;
+
         Ok(())
     }
 }

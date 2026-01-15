@@ -467,11 +467,11 @@ mod tests {
                                 "FR"
                             ]
                             playback.props = {
-                                node.name = "effect_input.pweq.test-eq"
+                                node.name = "effect_input.pw-eq.test-eq"
                                 node.passive = false
                             }
                             capture.props = {
-                                node.name = "effect_output.pweq.test-eq"
+                                node.name = "effect_output.pw-eq.test-eq"
                                 media.class = "Audio/Sink"
                                 pweq.managed = true
                             }
@@ -559,11 +559,11 @@ mod tests {
                                 "FR"
                             ]
                             playback.props = {
-                                node.name = "effect_input.pweq.param-eq"
+                                node.name = "effect_input.pw-eq.param-eq"
                                 node.passive = false
                             }
                             capture.props = {
-                                node.name = "effect_output.pweq.param-eq"
+                                node.name = "effect_output.pw-eq.param-eq"
                                 media.class = "Audio/Sink"
                                 pweq.managed = true
                             }
@@ -658,11 +658,11 @@ mod tests {
                                 "FR"
                             ]
                             playback.props = {
-                                node.name = "effect_input.pweq.test-eq"
+                                node.name = "effect_input.pw-eq.test-eq"
                                 node.passive = false
                             }
                             capture.props = {
-                                node.name = "effect_output.pweq.test-eq"
+                                node.name = "effect_output.pw-eq.test-eq"
                                 media.class = "Audio/Sink"
                                 pweq.managed = true
                             }

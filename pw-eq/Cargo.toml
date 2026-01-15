@@ -2,11 +2,13 @@
 name = "pw-eq"
 version = "0.1.0"
 edition = "2024"
+default-run = "pw-eq"
 
 [dependencies]
 pw-util.workspace = true
 keymap = { workspace = true, features = ["serde"] }
 spa-json.workspace = true
+autoeq-api.workspace = true
 
 anyhow.workspace = true
 clap = { version = "4.5.53", features = ["derive"] }
@@ -28,3 +30,4 @@ strum.workspace = true
 tokio-stream = "0.1.17"
 zi-input = { git = "https://github.com/andyyu2004/zi.git", features = ["crossterm", "serde"] }
 dashmap = "6.1.0"
+reqwest.workspace = true

@@ -1,4 +1,5 @@
 mod action;
+mod autoeq;
 mod draw;
 mod eq;
 mod theme;
@@ -8,6 +9,7 @@ use pw_util::module::{FilterType, TargetObject};
 use std::collections::HashMap;
 use std::thread;
 use std::{
+    collections::BTreeMap,
     io, mem,
     num::NonZero,
     ops::ControlFlow,
@@ -23,7 +25,6 @@ use crossterm::{
     terminal::{self, EnterAlternateScreen},
 };
 use futures_util::{Stream, StreamExt as _, future::BoxFuture, stream::FusedStream};
-use keymap::KeyMap;
 use pw_util::{NodeInfo, pipewire};
 use ratatui::{Terminal, prelude::Backend};
 use tokio::sync::mpsc;
@@ -31,7 +32,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::pw::{self, pw_thread};
 
-use self::{action::Action, eq::Eq, theme::Theme};
+use self::{eq::Eq, theme::Theme};
 
 pub enum Format {
     PwParamEq,
@@ -40,7 +41,7 @@ pub enum Format {
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
-enum Rotation {
+pub(super) enum Rotation {
     Clockwise,
     CounterClockwise,
 }
@@ -68,16 +69,31 @@ enum ViewMode {
 #[serde(rename_all = "kebab-case")]
 enum InputMode {
     #[default]
-    Normal,
+    Eq,
+    AutoEq,
     Command,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Tab {
+    Eq,
+    AutoEq,
+}
+
 pub enum Notif {
-    ModuleLoaded {
+    PwModuleLoaded {
         id: u32,
         name: String,
         media_name: String,
         reused: bool,
+    },
+    AutoEqDbLoaded {
+        entries: autoeq_api::Entries,
+        targets: Vec<autoeq_api::Target>,
+    },
+    AutoEqLoaded {
+        name: String,
+        response: autoeq_api::ParametricEq,
     },
     Error(anyhow::Error),
 }
@@ -88,6 +104,7 @@ pub type Task = BoxFuture<'static, TaskResult>;
 pub struct App<B: Backend + io::Write> {
     term: Terminal<B>,
     notifs: mpsc::Receiver<Notif>,
+    notifs_tx: mpsc::Sender<Notif>,
     tasks: Pin<Box<dyn FusedStream<Item = TaskResult> + Send>>,
     task_tx: mpsc::Sender<Task>,
     pw_tx: pipewire::channel::Sender<pw::Message>,
@@ -106,19 +123,32 @@ pub struct App<B: Backend + io::Write> {
     status: Option<Result<String, String>>,
     view_mode: ViewMode,
     config: Config,
+    tab: Tab,
+    autoeq_browser: autoeq::AutoEqBrowser,
+    http_client: reqwest::Client,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Config {
-    keymap: KeyMap<InputMode, zi_input::KeyEvent, Action>,
+    keymap: KeyMap,
     pub(super) theme: Theme,
+}
+
+#[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct KeyMap {
+    eq: BTreeMap<zi_input::KeyEvent, action::EqAction>,
+    autoeq: BTreeMap<zi_input::KeyEvent, action::AutoEqAction>,
+    command: BTreeMap<zi_input::KeyEvent, action::CommandAction>,
 }
 
 impl Config {
     /// Right-biased in-place merge of two configs
     pub fn merge(mut self, config: Config) -> Self {
-        self.keymap.merge(config.keymap);
+        self.keymap.eq.extend(config.keymap.eq);
+        self.keymap.autoeq.extend(config.keymap.autoeq);
+        self.keymap.command.extend(config.keymap.command);
 
         // Written in this way to make sure we don't forget to merge new fields later
         Self {
@@ -131,9 +161,8 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            theme: Theme::default(),
             keymap: serde_json::from_value(serde_json::json!({
-                "normal": {
+                "eq": {
                     "<C-c>":     "quit",
                     "?":         "toggle-help",
                     "j":         "select-next",
@@ -142,8 +171,8 @@ impl Default for Config {
                     "b":         "toggle-bypass",
                     "a":         "add-filter",
                     "x":         "remove-filter",
-                    "<Esc>":   { "enter-mode": "normal" },
-                    ":":       { "enter-mode": "command" },
+                    "<S-A>":     "open-auto-eq",
+                    ":":         "enter-command-mode",
                     "1":       { "select-index": 0 },
                     "2":       { "select-index": 1 },
                     "3":       { "select-index": 2 },
@@ -176,9 +205,23 @@ impl Default for Config {
                     "v":       { "cycle-view-mode": "clockwise" },
                     "0":       { "adjust-gain": { "set": 0.0 } },
                 },
+                "autoeq": {
+                    "<C-c>":    "quit",
+                    "?":        "toggle-help",
+                    "j":        "select-next",
+                    "k":        "select-previous",
+                    "<Down>":   "select-next",
+                    "<Up>":     "select-previous",
+                    "<CR>":     "apply-auto-eq",
+                    "<Tab>":      { "cycle-target": "clockwise" },
+                    "<S-Tab>":  { "cycle-target": "counter-clockwise" },
+                    "/":        "enter-filter-mode",
+                    "<Esc>":    "enter-eq-mode",
+                    ":":        "enter-command-mode",
+                },
                 "command": {
-                    "<Esc>":       { "enter-mode": "normal" },
-                    "<C-c>":       { "enter-mode": "normal" },
+                    "<Esc>":       "exit-command-mode",
+                    "<C-c>":       "exit-command-mode",
                     "<CR>":        "execute-command",
                     "<Up>":        "command-history-previous",
                     "<Down>":      "command-history-next",
@@ -188,9 +231,10 @@ impl Default for Config {
                     "<Right>":     "move-cursor-right",
                     "<Home>":      "move-cursor-home",
                     "<End>":       "move-cursor-end",
-                }
+                },
             }))
             .unwrap(),
+            theme: Theme::default(),
         }
     }
 }
@@ -219,7 +263,8 @@ where
 
         let (pw_tx, rx) = pipewire::channel::channel();
         let (notifs_tx, notifs) = mpsc::channel(100);
-        let pw_handle = thread::spawn(|| pw_thread(notifs_tx, rx, default_audio_sink));
+        let pw_notifs_tx = notifs_tx.clone();
+        let pw_handle = thread::spawn(|| pw_thread(pw_notifs_tx, rx, default_audio_sink));
 
         let (task_tx, task_rx) = mpsc::channel::<BoxFuture<'static, TaskResult>>(100);
         let tasks = Box::pin(ReceiverStream::new(task_rx).buffered(8));
@@ -272,6 +317,7 @@ where
             term,
             pw_tx,
             notifs,
+            notifs_tx,
             tasks,
             task_tx,
             eq,
@@ -290,6 +336,9 @@ where
             show_help: Default::default(),
             view_mode: Default::default(),
             status: Default::default(),
+            tab: Tab::Eq,
+            autoeq_browser: autoeq::AutoEqBrowser::default(),
+            http_client: reqwest::Client::new(),
         })
     }
 
@@ -362,7 +411,7 @@ where
 
     async fn on_notif(&mut self, notif: Notif) {
         match notif {
-            Notif::ModuleLoaded {
+            Notif::PwModuleLoaded {
                 id,
                 name,
                 media_name,
@@ -401,8 +450,27 @@ where
                     );
                 }
             }
+            Notif::AutoEqDbLoaded { entries, targets } => {
+                self.autoeq_browser.on_data_loaded(entries, targets);
+                self.status = Some(Ok(format!(
+                    "Loaded {} headphones",
+                    self.autoeq_browser.filtered_results.len()
+                )));
+            }
+            Notif::AutoEqLoaded { name, response } => {
+                tracing::info!(
+                    headphone = name,
+                    num_filters = response.filters.len(),
+                    "AutoEQ applied"
+                );
+                self.eq.preamp = response.preamp;
+                self.eq.filters = autoeq::param_eq_to_filters(response);
+                self.status = Some(Ok(format!("Applied EQ for {}", name)));
+                self.enter_eq_mode();
+            }
             Notif::Error(err) => {
-                tracing::error!(error = &*err, "PipeWire error")
+                tracing::error!(error = &*err, "error from notification");
+                self.status = Some(Err(err.to_string()));
             }
         }
     }
@@ -456,22 +524,45 @@ where
     fn handle_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
         tracing::trace!(?key, mode = ?self.input_mode, "key event");
 
-        match &self.input_mode {
-            InputMode::Normal => self.handle_normal_key(key),
-            InputMode::Command => self.handle_command_key(key),
-        }
-    }
+        match self.input_mode {
+            InputMode::Eq => {
+                if let Some(action) = self.config.keymap.eq.get(&key) {
+                    self.perform_eq_action(*action)
+                } else {
+                    Ok(ControlFlow::Continue(()))
+                }
+            }
+            InputMode::AutoEq => {
+                if let Some(action) = self.config.keymap.autoeq.get(&key) {
+                    self.perform_autoeq_action(*action)
+                } else {
+                    Ok(ControlFlow::Continue(()))
+                }
+            }
+            InputMode::Command => {
+                if let Some(action) = self.config.keymap.command.get(&key) {
+                    self.perform_command_action(*action)
+                } else if let KeyCode::Char(c) = key.code()
+                    && !key.modifiers().contains(KeyModifiers::CONTROL)
+                    && !key.modifiers().contains(KeyModifiers::ALT)
+                {
+                    // Handle unmapped character input
+                    self.command_buffer.insert(self.command_cursor_pos, c);
+                    self.command_cursor_pos += 1;
+                    self.command_history_index = None;
 
-    fn handle_normal_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
-        assert!(matches!(self.input_mode, InputMode::Normal));
-        if let Some(action) = self.config.keymap.get(&self.input_mode, &key) {
-            match self.perform(*action)? {
-                ControlFlow::Continue(()) => {}
-                ControlFlow::Break(()) => return Ok(ControlFlow::Break(())),
+                    // Update filter in real-time if we're in filter mode
+                    if let Some(query) = self.command_buffer.strip_prefix('/') {
+                        self.autoeq_browser.filter_query = query.to_string();
+                        self.autoeq_browser.update_filtered_results();
+                    }
+
+                    Ok(ControlFlow::Continue(()))
+                } else {
+                    Ok(ControlFlow::Continue(()))
+                }
             }
         }
-
-        Ok(ControlFlow::Continue(()))
     }
 
     fn cycle_view_mode(&mut self, _rotation: Rotation) {
@@ -481,7 +572,9 @@ where
         };
     }
 
-    fn perform(&mut self, action: Action) -> io::Result<ControlFlow<()>> {
+    fn perform_eq_action(&mut self, action: action::EqAction) -> io::Result<ControlFlow<()>> {
+        use action::EqAction;
+
         let before_idx = self.eq.selected_idx;
         let before_filter = self.eq.filters[self.eq.selected_idx];
         let before_preamp = self.eq.preamp;
@@ -489,63 +582,27 @@ where
         let before_filter_count = self.eq.filters.len();
 
         match action {
-            Action::EnterMode(mode) => match mode {
-                InputMode::Normal => self.enter_normal_mode(),
-                InputMode::Command => self.enter_command_mode(),
-            },
-            Action::ClearStatus => self.status = None,
-            Action::ToggleHelp => self.show_help = !self.show_help,
-            Action::Quit => return Ok(ControlFlow::Break(())),
-            Action::SelectNext => self.eq.select_next_filter(),
-            Action::SelectPrevious => self.eq.select_prev_filter(),
-            Action::AddFilter => self.eq.add_filter(),
-            Action::RemoveFilter => self.eq.delete_selected_filter(),
-            Action::SelectIndex(idx) => {
+            EqAction::Quit => return Ok(ControlFlow::Break(())),
+            EqAction::ToggleHelp => self.show_help = !self.show_help,
+            EqAction::SelectNext => self.eq.select_next_filter(),
+            EqAction::SelectPrevious => self.eq.select_prev_filter(),
+            EqAction::AddFilter => self.eq.add_filter(),
+            EqAction::RemoveFilter => self.eq.delete_selected_filter(),
+            EqAction::ToggleBypass => self.eq.toggle_bypass(),
+            EqAction::ToggleMute => self.eq.toggle_mute(),
+            EqAction::SelectIndex(idx) => {
                 if idx < self.eq.filters.len() {
                     self.eq.selected_idx = idx;
                 }
             }
-            Action::AdjustFrequency(adj) => self.eq.adjust_freq(|f| adj.apply(f)),
-            Action::AdjustGain(adj) => self.eq.adjust_gain(|g| adj.apply(g)),
-            Action::AdjustQ(adj) => self.eq.adjust_q(|q| adj.apply(q)),
-            Action::AdjustPreamp(adj) => self.eq.adjust_preamp(|p| adj.apply(p)),
-            Action::CycleFilterType(rotation) => self.eq.cycle_filter_type(rotation),
-            Action::ToggleBypass => self.eq.toggle_bypass(),
-            Action::ToggleMute => self.eq.toggle_mute(),
-            Action::CycleViewMode(rotation) => self.cycle_view_mode(rotation),
-            Action::ExecuteCommand => {
-                let InputMode::Command = mem::replace(&mut self.input_mode, InputMode::Normal)
-                else {
-                    return Ok(ControlFlow::Continue(()));
-                };
-                let buffer = mem::take(&mut self.command_buffer);
-                return self.execute_command(&buffer);
-            }
-            Action::CommandHistoryPrevious => self.command_history_previous(),
-            Action::CommandHistoryNext => self.command_history_next(),
-            Action::DeleteCharBackward => {
-                if self.command_cursor_pos > 0 && !self.command_buffer.is_empty() {
-                    self.command_buffer.remove(self.command_cursor_pos - 1);
-                    self.command_cursor_pos -= 1;
-                }
-                self.command_history_index = None;
-            }
-            Action::DeleteCharForward => {
-                if self.command_cursor_pos < self.command_buffer.len() {
-                    self.command_buffer.remove(self.command_cursor_pos);
-                }
-                self.command_history_index = None;
-            }
-            Action::MoveCursorLeft => {
-                self.command_cursor_pos = self.command_cursor_pos.saturating_sub(1)
-            }
-            Action::MoveCursorRight => {
-                if self.command_cursor_pos < self.command_buffer.len() {
-                    self.command_cursor_pos += 1;
-                }
-            }
-            Action::MoveCursorHome => self.command_cursor_pos = 0,
-            Action::MoveCursorEnd => self.command_cursor_pos = self.command_buffer.len(),
+            EqAction::AdjustFrequency(adj) => self.eq.adjust_freq(|f| adj.apply(f)),
+            EqAction::AdjustGain(adj) => self.eq.adjust_gain(|g| adj.apply(g)),
+            EqAction::AdjustQ(adj) => self.eq.adjust_q(|q| adj.apply(q)),
+            EqAction::AdjustPreamp(adj) => self.eq.adjust_preamp(|p| adj.apply(p)),
+            EqAction::CycleFilterType(rotation) => self.eq.cycle_filter_type(rotation),
+            EqAction::CycleViewMode(rotation) => self.cycle_view_mode(rotation),
+            EqAction::OpenAutoEq => self.open_autoeq(),
+            EqAction::EnterCommandMode => self.enter_command_mode(':'),
         }
 
         if let Some(node_id) = self.active_node_id {
@@ -560,14 +617,10 @@ where
             }
 
             if before_bypass != self.eq.bypassed {
-                // If bypass state changed, sync all bands
                 self.sync(node_id, self.sample_rate);
             }
         }
 
-        // Load new module if filter count changed (add/delete band) because we cannot dynamically
-        // change the number of filters in the filter-chain module.
-        // Or if nothing is currently loaded.
         if !self.eq.is_noop()
             && (before_filter_count != self.eq.filters.len() || self.active_node_id.is_none())
         {
@@ -580,6 +633,143 @@ where
         }
 
         Ok(ControlFlow::Continue(()))
+    }
+
+    fn perform_autoeq_action(
+        &mut self,
+        action: action::AutoEqAction,
+    ) -> io::Result<ControlFlow<()>> {
+        use action::AutoEqAction;
+
+        match action {
+            AutoEqAction::Quit => return Ok(ControlFlow::Break(())),
+            AutoEqAction::ToggleHelp => self.show_help = !self.show_help,
+            AutoEqAction::SelectNext => {
+                if self.autoeq_browser.selected_index + 1
+                    < self.autoeq_browser.filtered_results.len()
+                {
+                    self.autoeq_browser.selected_index += 1;
+                }
+            }
+            AutoEqAction::SelectPrevious => {
+                self.autoeq_browser.selected_index =
+                    self.autoeq_browser.selected_index.saturating_sub(1);
+            }
+            AutoEqAction::ApplyAutoEq => self.apply_selected_autoeq(),
+            AutoEqAction::CycleTarget(rotation) => {
+                if let Some(targets) = &self.autoeq_browser.targets {
+                    let len = targets.len();
+                    match rotation {
+                        Rotation::Clockwise => {
+                            self.autoeq_browser.selected_target_index =
+                                (self.autoeq_browser.selected_target_index + 1) % len;
+                        }
+                        Rotation::CounterClockwise => {
+                            self.autoeq_browser.selected_target_index = self
+                                .autoeq_browser
+                                .selected_target_index
+                                .checked_sub(1)
+                                .unwrap_or(len - 1);
+                        }
+                    }
+                }
+            }
+            AutoEqAction::EnterEqMode => self.enter_eq_mode(),
+            AutoEqAction::EnterFilterMode => self.enter_command_mode('/'),
+            AutoEqAction::EnterCommandMode => self.enter_command_mode(':'),
+        }
+
+        Ok(ControlFlow::Continue(()))
+    }
+
+    fn enter_eq_mode(&mut self) {
+        self.tab = Tab::Eq;
+        self.input_mode = InputMode::Eq;
+    }
+
+    fn perform_command_action(
+        &mut self,
+        action: action::CommandAction,
+    ) -> io::Result<ControlFlow<()>> {
+        use action::CommandAction;
+
+        match action {
+            CommandAction::ExecuteCommand => {
+                let buffer = mem::take(&mut self.command_buffer);
+                // Check if it's a filter (starts with /) or command (starts with :)
+                if let Some(query) = buffer.strip_prefix('/') {
+                    // Filter mode - update autoeq filter and return to AutoEq mode
+                    self.autoeq_browser.filter_query = query.to_string();
+                    self.autoeq_browser.update_filtered_results();
+                    self.input_mode = InputMode::AutoEq;
+                    self.command_cursor_pos = 0;
+                } else if let Some(cmd) = buffer.strip_prefix(':') {
+                    // Command mode - strip : prefix, execute and return to Eq mode
+                    self.input_mode = InputMode::Eq;
+                    self.command_cursor_pos = 0;
+                    return self.execute_command(cmd);
+                } else {
+                    unreachable!("invalid command buffer (prefix should be / or :): {buffer}",);
+                }
+            }
+            CommandAction::ExitCommandMode => {
+                // Return to previous mode based on what command we were entering
+                if self.command_buffer.starts_with('/') {
+                    self.input_mode = InputMode::AutoEq;
+                } else {
+                    self.input_mode = InputMode::Eq;
+                }
+                self.command_buffer.clear();
+                self.command_cursor_pos = 0;
+            }
+            CommandAction::CommandHistoryPrevious => self.command_history_previous(),
+            CommandAction::CommandHistoryNext => self.command_history_next(),
+            CommandAction::DeleteCharBackward => {
+                // Don't allow deleting the prefix character (: or /)
+                if self.command_cursor_pos > 1 && !self.command_buffer.is_empty() {
+                    self.command_buffer.remove(self.command_cursor_pos - 1);
+                    self.command_cursor_pos -= 1;
+                }
+                self.command_history_index = None;
+
+                // Update filter in real-time if we're in filter mode
+                if self.command_buffer.starts_with('/') {
+                    self.autoeq_browser.filter_query = self.command_buffer[1..].to_string();
+                    self.autoeq_browser.update_filtered_results();
+                }
+            }
+            CommandAction::DeleteCharForward => {
+                if self.command_cursor_pos < self.command_buffer.len() {
+                    self.command_buffer.remove(self.command_cursor_pos);
+                }
+                self.command_history_index = None;
+
+                // Update filter in real-time if we're in filter mode
+                if self.command_buffer.starts_with('/') {
+                    self.autoeq_browser.filter_query = self.command_buffer[1..].to_string();
+                    self.autoeq_browser.update_filtered_results();
+                }
+            }
+            CommandAction::MoveCursorLeft => {
+                // Don't move cursor before the prefix character
+                self.command_cursor_pos = self.command_cursor_pos.saturating_sub(1).max(1)
+            }
+            CommandAction::MoveCursorRight => {
+                if self.command_cursor_pos < self.command_buffer.len() {
+                    self.command_cursor_pos += 1;
+                }
+            }
+            CommandAction::MoveCursorHome => self.command_cursor_pos = 1, // After prefix
+            CommandAction::MoveCursorEnd => self.command_cursor_pos = self.command_buffer.len(),
+        }
+
+        Ok(ControlFlow::Continue(()))
+    }
+
+    fn open_autoeq(&mut self) {
+        self.tab = Tab::AutoEq;
+        self.input_mode = InputMode::AutoEq;
+        self.load_autoeq_data();
     }
 
     fn load_module(&mut self) {
@@ -595,13 +785,27 @@ where
         });
     }
 
-    fn enter_normal_mode(&mut self) {
-        self.input_mode = InputMode::Normal;
+    fn load_autoeq_data(&mut self) {
+        self.autoeq_browser
+            .load_data(self.http_client.clone(), self.notifs_tx.clone());
     }
 
-    fn enter_command_mode(&mut self) {
+    fn apply_selected_autoeq(&mut self) {
+        if let Some(result) = self
+            .autoeq_browser
+            .apply_selected(self.http_client.clone(), self.notifs_tx.clone())
+        {
+            self.status = Some(result);
+        } else {
+            self.status = Some(Err("No headphone or target selected".to_string()));
+        }
+    }
+
+    fn enter_command_mode(&mut self, prefix: char) {
+        assert!(matches!(prefix, ':' | '/'));
         self.command_buffer.clear();
-        self.command_cursor_pos = 0;
+        self.command_buffer.push(prefix);
+        self.command_cursor_pos = 1;
         self.input_mode = InputMode::Command;
         self.command_history_index = None;
         self.command_history_scratch.clear();
@@ -618,13 +822,14 @@ where
                 // Save current buffer and start at the end of history
                 self.command_history_scratch = mem::take(&mut self.command_buffer);
                 self.command_history_index = Some(self.command_history.len() - 1);
-                self.command_buffer = self.command_history[self.command_history.len() - 1].clone();
+                self.command_buffer =
+                    format!(":{}", self.command_history[self.command_history.len() - 1]);
                 self.command_cursor_pos = self.command_buffer.len();
             }
             Some(idx) if idx > 0 => {
                 // Go back in history
                 self.command_history_index = Some(idx - 1);
-                self.command_buffer = self.command_history[idx - 1].clone();
+                self.command_buffer = format!(":{}", self.command_history[idx - 1]);
                 self.command_cursor_pos = self.command_buffer.len();
             }
             _ => {}
@@ -636,7 +841,7 @@ where
             if idx + 1 < self.command_history.len() {
                 // Go forward in history
                 self.command_history_index = Some(idx + 1);
-                self.command_buffer = self.command_history[idx + 1].clone();
+                self.command_buffer = format!(":{}", self.command_history[idx + 1]);
                 self.command_cursor_pos = self.command_buffer.len();
             } else {
                 // At the end, restore scratch
@@ -651,22 +856,30 @@ where
         // Group keys by action description
         let mut action_keys: HashMap<String, Vec<String>> = HashMap::new();
 
-        for (key, action) in self.config.keymap.iter_mode(&InputMode::Normal) {
-            // Special handling for mode switching
-            if let Action::EnterMode(InputMode::Command) = action {
-                action_keys
-                    .entry("command".to_string())
-                    .or_default()
-                    .push(format!("{}", key));
-                continue;
+        match self.input_mode {
+            InputMode::Eq => {
+                for (key, action) in &self.config.keymap.eq {
+                    if let Some(desc) = action.description() {
+                        action_keys
+                            .entry(desc.to_string())
+                            .or_default()
+                            .push(format!("{key}"));
+                    }
+                }
             }
-
-            // Get description for other actions
-            if let Some(desc) = action.description() {
-                action_keys
-                    .entry(desc.to_string())
-                    .or_default()
-                    .push(format!("{key}"));
+            InputMode::AutoEq => {
+                for (key, action) in &self.config.keymap.autoeq {
+                    if let Some(desc) = action.description() {
+                        action_keys
+                            .entry(desc.to_string())
+                            .or_default()
+                            .push(format!("{key}"));
+                    }
+                }
+            }
+            InputMode::Command => {
+                // Command mode doesn't show help text in the same way
+                return String::new();
             }
         }
 
@@ -680,26 +893,6 @@ where
 
         help_items.sort();
         help_items.join(" | ")
-    }
-
-    fn handle_command_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
-        assert!(matches!(self.input_mode, InputMode::Command));
-
-        // Try to find a matching action in the keymap
-        if let Some(action) = self.config.keymap.get(&self.input_mode, &key) {
-            return self.perform(*action);
-        }
-
-        if let KeyCode::Char(c) = key.code()
-            && !key.modifiers().contains(KeyModifiers::CONTROL)
-            && !key.modifiers().contains(KeyModifiers::ALT)
-        {
-            self.command_buffer.insert(self.command_cursor_pos, c);
-            self.command_cursor_pos += 1;
-            self.command_history_index = None;
-        }
-
-        Ok(ControlFlow::Continue(()))
     }
 
     fn execute_command(&mut self, cmd: &str) -> io::Result<ControlFlow<()>> {
@@ -741,6 +934,7 @@ where
 
         match &words[..] {
             ["q" | "quit"] => return Ok(ControlFlow::Break(())),
+            ["autoeq"] => self.open_autoeq(),
             [cmd @ ("w" | "write" | "w!" | "write!"), args @ ..] => {
                 let force = cmd.ends_with('!');
                 let mut path = match args {

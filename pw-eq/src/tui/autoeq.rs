@@ -64,7 +64,6 @@ impl AutoEqBrowser {
         self.loading = true;
 
         tokio::spawn(async move {
-            // Try to load from cache first
             let (entries, targets) = match AutoEqCache::load().await {
                 Ok(Some(cache)) => {
                     tracing::info!("Loaded AutoEQ data from cache");
@@ -176,9 +175,10 @@ impl AutoEqBrowser {
         if let Some(targets) = &self.targets
             && let Some(idx) = targets
                 .iter()
-                .position(|t| t.label.contains("Harman") && t.label.contains("over-ear"))
+                .position(|t| t.label.eq_ignore_ascii_case("harman over-ear 2018"))
         {
             self.selected_target_index = idx;
+            tracing::error!("Selected default target: {}", targets[idx].label);
         }
     }
 }

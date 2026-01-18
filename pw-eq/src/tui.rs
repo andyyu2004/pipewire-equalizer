@@ -164,6 +164,7 @@ impl Default for Config {
             keymap: serde_json::from_value(serde_json::json!({
                 "eq": {
                     "<C-c>":     "quit",
+                    "q" :        "quit",
                     "?":         "toggle-help",
                     "j":         "select-next",
                     "k":         "select-previous",
@@ -207,13 +208,14 @@ impl Default for Config {
                 },
                 "autoeq": {
                     "<C-c>":    "quit",
+                    "q" :       "quit",
                     "?":        "toggle-help",
                     "j":        "select-next",
                     "k":        "select-previous",
                     "<Down>":   "select-next",
                     "<Up>":     "select-previous",
                     "<CR>":     "apply-auto-eq",
-                    "<Tab>":      { "cycle-target": "clockwise" },
+                    "<Tab>":    { "cycle-target": "clockwise" },
                     "<S-Tab>":  { "cycle-target": "counter-clockwise" },
                     "/":        "enter-filter-mode",
                     "<Esc>":    "enter-eq-mode",

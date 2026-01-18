@@ -605,7 +605,7 @@ where
             NormalAction::CycleFilterType(rotation) => self.eq.cycle_filter_type(rotation),
             NormalAction::CycleViewMode(rotation) => self.cycle_view_mode(rotation),
             NormalAction::OpenAutoEq => self.open_autoeq(),
-            NormalAction::EnterCommandMode => self.enter_command_mode(),
+            NormalAction::EnterCommandMode => self.enter_command_mode(':'),
         }
 
         if let Some(node_id) = self.active_node_id {
@@ -677,17 +677,9 @@ where
                     }
                 }
             }
-            AutoEqAction::EnterFilterMode => {
-                self.command_buffer.clear();
-                self.command_buffer.push('/');
-                self.command_cursor_pos = 1;
-                self.input_mode = InputMode::Command;
-                self.command_history_index = None;
-                self.command_history_scratch.clear();
-                self.status = None;
-            }
             AutoEqAction::CloseAutoEq => self.enter_eq_mode(),
-            AutoEqAction::EnterCommandMode => self.enter_command_mode(),
+            AutoEqAction::EnterFilterMode => self.enter_command_mode('/'),
+            AutoEqAction::EnterCommandMode => self.enter_command_mode(':'),
         }
 
         Ok(ControlFlow::Continue(()))
@@ -814,9 +806,10 @@ where
         }
     }
 
-    fn enter_command_mode(&mut self) {
+    fn enter_command_mode(&mut self, prefix: char) {
+        assert!(matches!(prefix, ':' | '/'));
         self.command_buffer.clear();
-        self.command_buffer.push(':');
+        self.command_buffer.push(prefix);
         self.command_cursor_pos = 1;
         self.input_mode = InputMode::Command;
         self.command_history_index = None;

@@ -222,10 +222,11 @@ where
                     .map(|(idx, (name, entry))| {
                         let is_selected = idx == browser.selected_index;
                         let style = if is_selected {
-                            Style::default().bg(theme.selected_row).fg(theme.background)
+                            Style::default().bg(theme.selected_row)
                         } else {
                             Style::default()
-                        };
+                        }
+                        .fg(theme.text);
 
                         Row::new(vec![
                             Cell::from(name.as_str()),

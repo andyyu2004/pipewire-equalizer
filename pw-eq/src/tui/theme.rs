@@ -4,6 +4,7 @@ use ratatui::style::Color;
 #[serde(default, rename_all = "kebab-case")]
 pub(crate) struct Theme {
     pub background: Color,
+    pub text: Color,
     pub selected_row: Color,
 
     pub index: Color,
@@ -37,7 +38,8 @@ impl Theme {
     pub fn solarized_dark() -> Self {
         Self {
             background: Color::Rgb(0x00, 0x2b, 0x36),
-            selected_row: Color::Rgb(0x07, 0x36, 0x42),
+            text: Color::Rgb(0x83, 0x94, 0x96),
+            selected_row: Color::Rgb(0x58, 0x6e, 0x75),
 
             index: Color::Rgb(0x83, 0x94, 0x96),
             filter_type: Color::Rgb(0x26, 0x8b, 0xd2),

@@ -1,6 +1,4 @@
 use crate::filter::Filter;
-use crate::tui::Rotation;
-use crate::tui::action::Action;
 use crate::tui::theme::Theme;
 use anyhow;
 use pw_util::module::FilterType;
@@ -9,19 +7,14 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Padding, Paragraph, Row, Table},
 };
-use std::io;
-use std::ops::ControlFlow;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
-use zi_input::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::Notif;
 
 #[derive(Debug, Default)]
 pub struct AutoEqBrowser {
     pub filter_query: String,
-    pub filter_cursor_pos: usize,
-    pub filtering: bool,
     pub entries: Option<autoeq_api::Entries>,
     pub targets: Option<Vec<autoeq_api::Target>>,
     pub filtered_results: Vec<(String, autoeq_api::Entry)>,
@@ -174,105 +167,6 @@ impl AutoEqBrowser {
         )))
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<Option<Action>>> {
-        if self.filtering {
-            // Filter input mode
-            match key.code() {
-                KeyCode::Char(c)
-                    if !key.modifiers().contains(KeyModifiers::CONTROL)
-                        && !key.modifiers().contains(KeyModifiers::ALT) =>
-                {
-                    self.filter_query.insert(self.filter_cursor_pos, c);
-                    self.filter_cursor_pos += 1;
-                    self.update_filtered_results();
-                    return Ok(ControlFlow::Continue(()));
-                }
-                KeyCode::Backspace => {
-                    if self.filter_cursor_pos > 0 {
-                        self.filter_query.remove(self.filter_cursor_pos - 1);
-                        self.filter_cursor_pos -= 1;
-                        self.update_filtered_results();
-                    }
-                    return Ok(ControlFlow::Continue(()));
-                }
-                KeyCode::Left => {
-                    self.filter_cursor_pos = self.filter_cursor_pos.saturating_sub(1);
-                    return Ok(ControlFlow::Continue(()));
-                }
-                KeyCode::Right => {
-                    if self.filter_cursor_pos < self.filter_query.len() {
-                        self.filter_cursor_pos += 1;
-                    }
-                    return Ok(ControlFlow::Continue(()));
-                }
-                KeyCode::Esc | KeyCode::Enter => {
-                    self.filtering = false;
-                    return Ok(ControlFlow::Continue(()));
-                }
-                _ => return Ok(ControlFlow::Continue(())),
-            }
-        } else {
-            // Normal AutoEQ navigation
-            match key.code() {
-                KeyCode::Char('/') => {
-                    return Ok(ControlFlow::Break(Some(Action::EnterAutoEqFilter)));
-                }
-                KeyCode::Char('j') | KeyCode::Down => {
-                    if self.selected_index + 1 < self.filtered_results.len() {
-                        self.selected_index += 1;
-                    }
-                    return Ok(ControlFlow::Continue(()));
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    self.selected_index = self.selected_index.saturating_sub(1);
-                    return Ok(ControlFlow::Continue(()));
-                }
-                KeyCode::Char('t') => {
-                    return Ok(ControlFlow::Break(Some(Action::CycleAutoEqTarget(
-                        Rotation::Clockwise,
-                    ))));
-                }
-                KeyCode::Char('T') => {
-                    return Ok(ControlFlow::Break(Some(Action::CycleAutoEqTarget(
-                        Rotation::CounterClockwise,
-                    ))));
-                }
-                KeyCode::Enter => {
-                    return Ok(ControlFlow::Break(Some(Action::ApplyAutoEq)));
-                }
-                KeyCode::Esc => {
-                    return Ok(ControlFlow::Break(Some(Action::CloseAutoEq)));
-                }
-                _ => {}
-            }
-        }
-
-        Ok(ControlFlow::Continue(()))
-    }
-
-    pub fn handle_action(&mut self, action: Action) {
-        match action {
-            Action::EnterAutoEqFilter => {
-                self.filtering = true;
-            }
-            Action::CycleAutoEqTarget(rotation) => {
-                if let Some(targets) = &self.targets {
-                    let len = targets.len();
-                    match rotation {
-                        Rotation::Clockwise => {
-                            self.selected_target_index = (self.selected_target_index + 1) % len;
-                        }
-                        Rotation::CounterClockwise => {
-                            self.selected_target_index =
-                                self.selected_target_index.checked_sub(1).unwrap_or(len - 1);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
     pub fn on_data_loaded(
         &mut self,
         entries: autoeq_api::Entries,
@@ -392,9 +286,7 @@ impl AutoEqBrowser {
         }
 
         // Footer with filter query or help
-        let footer_text = if self.filtering {
-            format!("/{}", self.filter_query)
-        } else if self.filter_query.is_empty() {
+        let footer_text = if self.filter_query.is_empty() {
             "/: filter | t/T: cycle target | Enter: apply | Esc: close | j/k: navigate".to_string()
         } else {
             format!(

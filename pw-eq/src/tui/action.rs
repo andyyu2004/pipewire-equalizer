@@ -1,12 +1,10 @@
-use super::{InputMode, Rotation};
+use super::Rotation;
 
 #[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Action {
-    EnterMode(InputMode),
-    ClearStatus,
-    ToggleHelp,
+pub enum NormalAction {
     Quit,
+    ToggleHelp,
     SelectNext,
     SelectPrevious,
     AddFilter,
@@ -20,7 +18,29 @@ pub enum Action {
     AdjustPreamp(Adjustment),
     CycleFilterType(Rotation),
     CycleViewMode(Rotation),
+    OpenAutoEq,
+    EnterCommandMode,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AutoEqAction {
+    Quit,
+    ToggleHelp,
+    SelectNext,
+    SelectPrevious,
+    ApplyAutoEq,
+    CycleTarget(Rotation),
+    EnterFilterMode,
+    CloseAutoEq,
+    EnterCommandMode,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CommandAction {
     ExecuteCommand,
+    ExitCommandMode,
     CommandHistoryPrevious,
     CommandHistoryNext,
     DeleteCharBackward,
@@ -29,11 +49,6 @@ pub enum Action {
     MoveCursorRight,
     MoveCursorHome,
     MoveCursorEnd,
-    OpenAutoEq,
-    CloseAutoEq,
-    ApplyAutoEq,
-    EnterAutoEqFilter,
-    CycleAutoEqTarget(Rotation),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -54,46 +69,45 @@ impl Adjustment {
     }
 }
 
-impl Action {
+impl NormalAction {
     /// Returns a short description of the action for help text
     pub fn description(&self) -> Option<&'static str> {
         match self {
-            Action::ToggleHelp => Some("help"),
-            Action::Quit => Some("quit"),
-            Action::SelectNext => Some("next"),
-            Action::SelectPrevious => Some("prev"),
-            Action::AddFilter => Some("add"),
-            Action::RemoveFilter => Some("delete"),
-            Action::ToggleBypass => Some("bypass"),
-            Action::ToggleMute => Some("mute"),
-            Action::SelectIndex(_) => Some("select"),
-            Action::AdjustFrequency(_) => Some("freq"),
-            Action::AdjustGain(Adjustment::Set(0.0)) => Some("zero gain"),
-            Action::AdjustGain(_) => Some("gain"),
-            Action::AdjustQ(_) => Some("Q"),
-            Action::AdjustPreamp(_) => Some("preamp"),
-            Action::CycleFilterType(..) => Some("cycle type"),
-            Action::CycleViewMode(..) => Some("cycle view"),
-            Action::EnterMode(mode) => match mode {
-                InputMode::Eq => Some("normal mode"),
-                InputMode::AutoEq => Some("autoeq mode"),
-                InputMode::Command => Some("command mode"),
-            },
-            Action::OpenAutoEq => Some("autoeq"),
-            Action::CloseAutoEq => Some("close autoeq"),
-            Action::ApplyAutoEq => Some("apply"),
-            Action::EnterAutoEqFilter => Some("filter"),
-            Action::CycleAutoEqTarget(_) => Some("cycle target"),
-            Action::ExecuteCommand
-            | Action::ClearStatus
-            | Action::CommandHistoryPrevious
-            | Action::CommandHistoryNext
-            | Action::DeleteCharBackward
-            | Action::DeleteCharForward
-            | Action::MoveCursorLeft
-            | Action::MoveCursorRight
-            | Action::MoveCursorHome
-            | Action::MoveCursorEnd => None,
+            NormalAction::ToggleHelp => Some("help"),
+            NormalAction::Quit => Some("quit"),
+            NormalAction::SelectNext => Some("next"),
+            NormalAction::SelectPrevious => Some("prev"),
+            NormalAction::AddFilter => Some("add"),
+            NormalAction::RemoveFilter => Some("delete"),
+            NormalAction::ToggleBypass => Some("bypass"),
+            NormalAction::ToggleMute => Some("mute"),
+            NormalAction::SelectIndex(_) => Some("select"),
+            NormalAction::AdjustFrequency(_) => Some("freq"),
+            NormalAction::AdjustGain(Adjustment::Set(0.0)) => Some("zero gain"),
+            NormalAction::AdjustGain(_) => Some("gain"),
+            NormalAction::AdjustQ(_) => Some("Q"),
+            NormalAction::AdjustPreamp(_) => Some("preamp"),
+            NormalAction::CycleFilterType(..) => Some("cycle type"),
+            NormalAction::CycleViewMode(..) => Some("cycle view"),
+            NormalAction::OpenAutoEq => Some("autoeq"),
+            NormalAction::EnterCommandMode => None,
+        }
+    }
+}
+
+impl AutoEqAction {
+    /// Returns a short description of the action for help text
+    pub fn description(&self) -> Option<&'static str> {
+        match self {
+            AutoEqAction::Quit => Some("quit"),
+            AutoEqAction::ToggleHelp => Some("help"),
+            AutoEqAction::SelectNext => Some("next"),
+            AutoEqAction::SelectPrevious => Some("prev"),
+            AutoEqAction::ApplyAutoEq => Some("apply"),
+            AutoEqAction::CycleTarget(_) => Some("cycle target"),
+            AutoEqAction::EnterFilterMode => Some("filter"),
+            AutoEqAction::CloseAutoEq => Some("close"),
+            AutoEqAction::EnterCommandMode => None,
         }
     }
 }

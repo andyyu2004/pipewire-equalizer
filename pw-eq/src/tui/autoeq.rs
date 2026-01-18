@@ -1,10 +1,9 @@
 use crate::filter::Filter;
+use crate::tui::Rotation;
 use crate::tui::action::Action;
 use crate::tui::theme::Theme;
-use crate::tui::Rotation;
 use anyhow;
 use pw_util::module::FilterType;
-use zi_input::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
@@ -14,9 +13,11 @@ use std::io;
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
+use zi_input::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::Notif;
 
+#[derive(Debug, Default)]
 pub struct AutoEqBrowser {
     pub filter_query: String,
     pub filter_cursor_pos: usize,
@@ -27,22 +28,6 @@ pub struct AutoEqBrowser {
     pub selected_index: usize,
     pub selected_target_index: usize,
     pub loading: bool,
-}
-
-impl Default for AutoEqBrowser {
-    fn default() -> Self {
-        Self {
-            filter_query: String::new(),
-            filter_cursor_pos: 0,
-            filtering: false,
-            entries: None,
-            targets: None,
-            filtered_results: Vec::new(),
-            selected_index: 0,
-            selected_target_index: 0,
-            loading: false,
-        }
-    }
 }
 
 impl AutoEqBrowser {
@@ -175,9 +160,7 @@ impl AutoEqBrowser {
 
             match autoeq_api::equalize(&http_client, &request).await {
                 Ok(response) => {
-                    let _ = notifs_tx
-                        .send(Notif::AutoEqLoaded { name, response })
-                        .await;
+                    let _ = notifs_tx.send(Notif::AutoEqLoaded { name, response }).await;
                 }
                 Err(err) => {
                     let _ = notifs_tx.send(Notif::Error(err.into())).await;
@@ -185,7 +168,10 @@ impl AutoEqBrowser {
             }
         });
 
-        Some(Ok(format!("Fetching EQ for {} from {}...", display_name, display_source)))
+        Some(Ok(format!(
+            "Fetching EQ for {} from {}...",
+            display_name, display_source
+        )))
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<Option<Action>>> {
@@ -277,10 +263,8 @@ impl AutoEqBrowser {
                             self.selected_target_index = (self.selected_target_index + 1) % len;
                         }
                         Rotation::CounterClockwise => {
-                            self.selected_target_index = self
-                                .selected_target_index
-                                .checked_sub(1)
-                                .unwrap_or(len - 1);
+                            self.selected_target_index =
+                                self.selected_target_index.checked_sub(1).unwrap_or(len - 1);
                         }
                     }
                 }
@@ -289,7 +273,11 @@ impl AutoEqBrowser {
         }
     }
 
-    pub fn on_data_loaded(&mut self, entries: autoeq_api::Entries, targets: Vec<autoeq_api::Target>) {
+    pub fn on_data_loaded(
+        &mut self,
+        entries: autoeq_api::Entries,
+        targets: Vec<autoeq_api::Target>,
+    ) {
         self.entries = Some(entries);
         self.targets = Some(targets);
         self.loading = false;
@@ -306,12 +294,7 @@ impl AutoEqBrowser {
         }
     }
 
-    pub fn draw(
-        &self,
-        f: &mut ratatui::Frame,
-        area: ratatui::layout::Rect,
-        theme: &Theme,
-    ) {
+    pub fn draw(&self, f: &mut ratatui::Frame, area: ratatui::layout::Rect, theme: &Theme) {
         use ratatui::layout::{Constraint, Direction, Layout};
 
         let chunks = Layout::default()
@@ -373,9 +356,7 @@ impl AutoEqBrowser {
                 .map(|(idx, (name, entry))| {
                     let is_selected = idx == self.selected_index;
                     let style = if is_selected {
-                        Style::default()
-                            .bg(theme.selected_row)
-                            .fg(theme.background)
+                        Style::default().bg(theme.selected_row).fg(theme.background)
                     } else {
                         Style::default()
                     };
@@ -415,8 +396,7 @@ impl AutoEqBrowser {
         let footer_text = if self.filtering {
             format!("/{}", self.filter_query)
         } else if self.filter_query.is_empty() {
-            "/: filter | t/T: cycle target | Enter: apply | Esc: close | j/k: navigate"
-                .to_string()
+            "/: filter | t/T: cycle target | Enter: apply | Esc: close | j/k: navigate".to_string()
         } else {
             format!(
                 "Filtered by: {} | /: change filter | t/T: target | Enter: apply | Esc: close",
@@ -492,7 +472,7 @@ impl AutoEqCache {
     }
 }
 
-pub fn convert_response_to_filters(response: autoeq_api::ParametricEq) -> Vec<Filter> {
+pub fn param_eq_to_filters(response: autoeq_api::ParametricEq) -> Vec<Filter> {
     let num_filters = response.filters.len();
     response
         .filters
@@ -510,9 +490,9 @@ pub fn convert_response_to_filters(response: autoeq_api::ParametricEq) -> Vec<Fi
             };
 
             Filter {
-                frequency: f.fc as f64,
-                gain: f.gain as f64,
-                q: f.q as f64,
+                frequency: f.fc,
+                gain: f.gain,
+                q: f.q,
                 filter_type,
                 muted: false,
             }

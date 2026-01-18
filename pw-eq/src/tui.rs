@@ -442,7 +442,7 @@ where
                 );
                 self.tab = Tab::Equalizer;
                 self.eq.preamp = response.preamp;
-                self.eq.filters = autoeq::convert_response_to_filters(response);
+                self.eq.filters = autoeq::param_eq_to_filters(response);
                 self.status = Some(Ok(format!("Applied EQ for {}", name)));
             }
             Notif::Error(err) => {
@@ -672,10 +672,10 @@ where
     }
 
     fn apply_selected_autoeq(&mut self) {
-        if let Some(result) = self.autoeq_browser.apply_selected(
-            self.http_client.clone(),
-            self.notifs_tx.clone(),
-        ) {
+        if let Some(result) = self
+            .autoeq_browser
+            .apply_selected(self.http_client.clone(), self.notifs_tx.clone())
+        {
             self.status = Some(result);
         } else {
             self.status = Some(Err("No headphone or target selected".to_string()));

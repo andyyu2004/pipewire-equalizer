@@ -463,10 +463,10 @@ where
                     num_filters = response.filters.len(),
                     "AutoEQ applied"
                 );
-                self.input_mode = InputMode::Eq;
                 self.eq.preamp = response.preamp;
                 self.eq.filters = autoeq::param_eq_to_filters(response);
                 self.status = Some(Ok(format!("Applied EQ for {}", name)));
+                self.enter_eq_mode();
             }
             Notif::Error(err) => {
                 tracing::error!(error = &*err, "error from notification");
@@ -686,14 +686,16 @@ where
                 self.command_history_scratch.clear();
                 self.status = None;
             }
-            AutoEqAction::CloseAutoEq => {
-                self.tab = Tab::Eq;
-                self.input_mode = InputMode::Eq;
-            }
+            AutoEqAction::CloseAutoEq => self.enter_eq_mode(),
             AutoEqAction::EnterCommandMode => self.enter_command_mode(),
         }
 
         Ok(ControlFlow::Continue(()))
+    }
+
+    fn enter_eq_mode(&mut self) {
+        self.tab = Tab::Eq;
+        self.input_mode = InputMode::Eq;
     }
 
     fn perform_command_action(
@@ -712,11 +714,15 @@ where
                     self.autoeq_browser.update_filtered_results();
                     self.input_mode = InputMode::AutoEq;
                     self.command_cursor_pos = 0;
-                } else {
-                    // Command mode - execute and return to Eq mode
+                } else if let Some(cmd) = buffer.strip_prefix(':') {
+                    // Command mode - strip : prefix, execute and return to Eq mode
                     self.input_mode = InputMode::Eq;
                     self.command_cursor_pos = 0;
-                    return self.execute_command(&buffer);
+                    return self.execute_command(cmd);
+                } else {
+                    // Shouldn't happen, but handle gracefully
+                    self.input_mode = InputMode::Eq;
+                    self.command_cursor_pos = 0;
                 }
             }
             CommandAction::ExitCommandMode => {
@@ -732,7 +738,8 @@ where
             CommandAction::CommandHistoryPrevious => self.command_history_previous(),
             CommandAction::CommandHistoryNext => self.command_history_next(),
             CommandAction::DeleteCharBackward => {
-                if self.command_cursor_pos > 0 && !self.command_buffer.is_empty() {
+                // Don't allow deleting the prefix character (: or /)
+                if self.command_cursor_pos > 1 && !self.command_buffer.is_empty() {
                     self.command_buffer.remove(self.command_cursor_pos - 1);
                     self.command_cursor_pos -= 1;
                 }
@@ -757,14 +764,15 @@ where
                 }
             }
             CommandAction::MoveCursorLeft => {
-                self.command_cursor_pos = self.command_cursor_pos.saturating_sub(1)
+                // Don't move cursor before the prefix character
+                self.command_cursor_pos = self.command_cursor_pos.saturating_sub(1).max(1)
             }
             CommandAction::MoveCursorRight => {
                 if self.command_cursor_pos < self.command_buffer.len() {
                     self.command_cursor_pos += 1;
                 }
             }
-            CommandAction::MoveCursorHome => self.command_cursor_pos = 0,
+            CommandAction::MoveCursorHome => self.command_cursor_pos = 1, // After prefix
             CommandAction::MoveCursorEnd => self.command_cursor_pos = self.command_buffer.len(),
         }
 
@@ -808,7 +816,8 @@ where
 
     fn enter_command_mode(&mut self) {
         self.command_buffer.clear();
-        self.command_cursor_pos = 0;
+        self.command_buffer.push(':');
+        self.command_cursor_pos = 1;
         self.input_mode = InputMode::Command;
         self.command_history_index = None;
         self.command_history_scratch.clear();
@@ -825,13 +834,14 @@ where
                 // Save current buffer and start at the end of history
                 self.command_history_scratch = mem::take(&mut self.command_buffer);
                 self.command_history_index = Some(self.command_history.len() - 1);
-                self.command_buffer = self.command_history[self.command_history.len() - 1].clone();
+                self.command_buffer =
+                    format!(":{}", self.command_history[self.command_history.len() - 1]);
                 self.command_cursor_pos = self.command_buffer.len();
             }
             Some(idx) if idx > 0 => {
                 // Go back in history
                 self.command_history_index = Some(idx - 1);
-                self.command_buffer = self.command_history[idx - 1].clone();
+                self.command_buffer = format!(":{}", self.command_history[idx - 1]);
                 self.command_cursor_pos = self.command_buffer.len();
             }
             _ => {}
@@ -843,7 +853,7 @@ where
             if idx + 1 < self.command_history.len() {
                 // Go forward in history
                 self.command_history_index = Some(idx + 1);
-                self.command_buffer = self.command_history[idx + 1].clone();
+                self.command_buffer = format!(":{}", self.command_history[idx + 1]);
                 self.command_cursor_pos = self.command_buffer.len();
             } else {
                 // At the end, restore scratch

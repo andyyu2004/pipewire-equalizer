@@ -32,14 +32,8 @@ where
 
         match &self.input_mode {
             InputMode::Command => {
-                let display_text = if self.command_buffer.starts_with('/') {
-                    // Filter mode - buffer already contains '/'
-                    self.command_buffer.clone()
-                } else {
-                    // Command mode - add ':' prefix
-                    format!(":{}", self.command_buffer)
-                };
-                Paragraph::new(display_text).style(Style::default().fg(theme.footer))
+                // Buffer always contains the prefix (: or /)
+                Paragraph::new(self.command_buffer.clone()).style(Style::default().fg(theme.footer))
             }
             InputMode::Eq | InputMode::AutoEq if self.status.is_some() => {
                 let (msg, color) = match self.status.as_ref().unwrap() {
@@ -147,7 +141,7 @@ where
 
             if let InputMode::Command = &self.input_mode {
                 f.set_cursor_position((
-                    chunks[3].x + 1 + self.command_cursor_pos as u16,
+                    chunks[3].x + self.command_cursor_pos as u16,
                     chunks[3].y,
                 ));
             }

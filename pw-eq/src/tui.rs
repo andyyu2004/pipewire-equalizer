@@ -131,14 +131,14 @@ pub struct App<B: Backend + io::Write> {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Config {
-    keymap: KeyMaps,
+    keymap: KeyMap,
     pub(super) theme: Theme,
 }
 
 #[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
-struct KeyMaps {
-    normal: BTreeMap<zi_input::KeyEvent, action::NormalAction>,
+struct KeyMap {
+    eq: BTreeMap<zi_input::KeyEvent, action::EqAction>,
     autoeq: BTreeMap<zi_input::KeyEvent, action::AutoEqAction>,
     command: BTreeMap<zi_input::KeyEvent, action::CommandAction>,
 }
@@ -146,7 +146,7 @@ struct KeyMaps {
 impl Config {
     /// Right-biased in-place merge of two configs
     pub fn merge(mut self, config: Config) -> Self {
-        self.keymap.normal.extend(config.keymap.normal);
+        self.keymap.eq.extend(config.keymap.eq);
         self.keymap.autoeq.extend(config.keymap.autoeq);
         self.keymap.command.extend(config.keymap.command);
 
@@ -162,7 +162,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             keymap: serde_json::from_value(serde_json::json!({
-                "normal": {
+                "eq": {
                     "<C-c>":     "quit",
                     "?":         "toggle-help",
                     "j":         "select-next",
@@ -213,10 +213,10 @@ impl Default for Config {
                     "<Down>":   "select-next",
                     "<Up>":     "select-previous",
                     "<CR>":     "apply-auto-eq",
-                    "t":        { "cycle-target": "clockwise" },
-                    "<S-T>":    { "cycle-target": "counter-clockwise" },
+                    "<Tab>":      { "cycle-target": "clockwise" },
+                    "<S-Tab>":  { "cycle-target": "counter-clockwise" },
                     "/":        "enter-filter-mode",
-                    "<Esc>":    "close-auto-eq",
+                    "<Esc>":    "enter-eq-mode",
                     ":":        "enter-command-mode",
                 },
                 "command": {
@@ -526,8 +526,8 @@ where
 
         match self.input_mode {
             InputMode::Eq => {
-                if let Some(action) = self.config.keymap.normal.get(&key) {
-                    self.perform_normal_action(*action)
+                if let Some(action) = self.config.keymap.eq.get(&key) {
+                    self.perform_eq_action(*action)
                 } else {
                     Ok(ControlFlow::Continue(()))
                 }
@@ -552,8 +552,8 @@ where
                     self.command_history_index = None;
 
                     // Update filter in real-time if we're in filter mode
-                    if self.command_buffer.starts_with('/') {
-                        self.autoeq_browser.filter_query = self.command_buffer[1..].to_string();
+                    if let Some(query) = self.command_buffer.strip_prefix('/') {
+                        self.autoeq_browser.filter_query = query.to_string();
                         self.autoeq_browser.update_filtered_results();
                     }
 
@@ -572,11 +572,8 @@ where
         };
     }
 
-    fn perform_normal_action(
-        &mut self,
-        action: action::NormalAction,
-    ) -> io::Result<ControlFlow<()>> {
-        use action::NormalAction;
+    fn perform_eq_action(&mut self, action: action::EqAction) -> io::Result<ControlFlow<()>> {
+        use action::EqAction;
 
         let before_idx = self.eq.selected_idx;
         let before_filter = self.eq.filters[self.eq.selected_idx];
@@ -585,27 +582,27 @@ where
         let before_filter_count = self.eq.filters.len();
 
         match action {
-            NormalAction::Quit => return Ok(ControlFlow::Break(())),
-            NormalAction::ToggleHelp => self.show_help = !self.show_help,
-            NormalAction::SelectNext => self.eq.select_next_filter(),
-            NormalAction::SelectPrevious => self.eq.select_prev_filter(),
-            NormalAction::AddFilter => self.eq.add_filter(),
-            NormalAction::RemoveFilter => self.eq.delete_selected_filter(),
-            NormalAction::ToggleBypass => self.eq.toggle_bypass(),
-            NormalAction::ToggleMute => self.eq.toggle_mute(),
-            NormalAction::SelectIndex(idx) => {
+            EqAction::Quit => return Ok(ControlFlow::Break(())),
+            EqAction::ToggleHelp => self.show_help = !self.show_help,
+            EqAction::SelectNext => self.eq.select_next_filter(),
+            EqAction::SelectPrevious => self.eq.select_prev_filter(),
+            EqAction::AddFilter => self.eq.add_filter(),
+            EqAction::RemoveFilter => self.eq.delete_selected_filter(),
+            EqAction::ToggleBypass => self.eq.toggle_bypass(),
+            EqAction::ToggleMute => self.eq.toggle_mute(),
+            EqAction::SelectIndex(idx) => {
                 if idx < self.eq.filters.len() {
                     self.eq.selected_idx = idx;
                 }
             }
-            NormalAction::AdjustFrequency(adj) => self.eq.adjust_freq(|f| adj.apply(f)),
-            NormalAction::AdjustGain(adj) => self.eq.adjust_gain(|g| adj.apply(g)),
-            NormalAction::AdjustQ(adj) => self.eq.adjust_q(|q| adj.apply(q)),
-            NormalAction::AdjustPreamp(adj) => self.eq.adjust_preamp(|p| adj.apply(p)),
-            NormalAction::CycleFilterType(rotation) => self.eq.cycle_filter_type(rotation),
-            NormalAction::CycleViewMode(rotation) => self.cycle_view_mode(rotation),
-            NormalAction::OpenAutoEq => self.open_autoeq(),
-            NormalAction::EnterCommandMode => self.enter_command_mode(':'),
+            EqAction::AdjustFrequency(adj) => self.eq.adjust_freq(|f| adj.apply(f)),
+            EqAction::AdjustGain(adj) => self.eq.adjust_gain(|g| adj.apply(g)),
+            EqAction::AdjustQ(adj) => self.eq.adjust_q(|q| adj.apply(q)),
+            EqAction::AdjustPreamp(adj) => self.eq.adjust_preamp(|p| adj.apply(p)),
+            EqAction::CycleFilterType(rotation) => self.eq.cycle_filter_type(rotation),
+            EqAction::CycleViewMode(rotation) => self.cycle_view_mode(rotation),
+            EqAction::OpenAutoEq => self.open_autoeq(),
+            EqAction::EnterCommandMode => self.enter_command_mode(':'),
         }
 
         if let Some(node_id) = self.active_node_id {
@@ -677,7 +674,7 @@ where
                     }
                 }
             }
-            AutoEqAction::CloseAutoEq => self.enter_eq_mode(),
+            AutoEqAction::EnterEqMode => self.enter_eq_mode(),
             AutoEqAction::EnterFilterMode => self.enter_command_mode('/'),
             AutoEqAction::EnterCommandMode => self.enter_command_mode(':'),
         }
@@ -712,9 +709,7 @@ where
                     self.command_cursor_pos = 0;
                     return self.execute_command(cmd);
                 } else {
-                    // Shouldn't happen, but handle gracefully
-                    self.input_mode = InputMode::Eq;
-                    self.command_cursor_pos = 0;
+                    unreachable!("invalid command buffer (prefix should be / or :): {buffer}",);
                 }
             }
             CommandAction::ExitCommandMode => {
@@ -863,7 +858,7 @@ where
 
         match self.input_mode {
             InputMode::Eq => {
-                for (key, action) in &self.config.keymap.normal {
+                for (key, action) in &self.config.keymap.eq {
                     if let Some(desc) = action.description() {
                         action_keys
                             .entry(desc.to_string())

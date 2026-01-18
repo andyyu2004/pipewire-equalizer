@@ -140,10 +140,7 @@ where
             f.render_widget(footer.clone(), chunks[3]);
 
             if let InputMode::Command = &self.input_mode {
-                f.set_cursor_position((
-                    chunks[3].x + self.command_cursor_pos as u16,
-                    chunks[3].y,
-                ));
+                f.set_cursor_position((chunks[3].x + self.command_cursor_pos as u16, chunks[3].y));
             }
         })?;
         Ok(())
@@ -261,7 +258,6 @@ where
                 f.render_widget(results_table, chunks[1]);
             }
 
-            // Footer - shared logic with normal mode
             f.render_widget(footer.clone(), chunks[2]);
         })?;
 

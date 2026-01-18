@@ -85,7 +85,6 @@ pub enum Notif {
         id: u32,
         name: String,
         media_name: String,
-        reused: bool,
     },
     AutoEqDbLoaded {
         entries: autoeq_api::Entries,
@@ -417,7 +416,6 @@ where
                 id,
                 name,
                 media_name,
-                reused,
             } => {
                 tracing::info!(id, name, media_name, "module loaded");
 
@@ -430,10 +428,7 @@ where
 
                 let node_id = node.id;
 
-                if reused {
-                    // If the module was reused, it may have stale filter settings
-                    self.sync_all(node_id, self.sample_rate);
-                }
+                self.sync_all(node_id, self.sample_rate);
 
                 self.active_node_id = Some(node_id);
                 if let Err(err) = self.pw_tx.send(pw::Message::SetActiveNode(NodeInfo {
@@ -507,6 +502,7 @@ where
         self.apply_updates(node_id, [(band_id, update)]);
     }
 
+    // Sync preamp and all filters to PipeWire
     fn sync_all(&self, node_id: u32, sample_rate: u32) {
         let mut updates = Vec::with_capacity(self.eq.filters.len() + 1);
 
@@ -611,17 +607,6 @@ where
             EqAction::EnterCommandMode => self.enter_command_mode(':'),
         }
 
-        if !self.eq.is_noop()
-            && (before_filter_count != self.eq.filters.len() || self.active_node_id.is_none())
-        {
-            tracing::debug!(
-                old_filter_count = before_filter_count,
-                new_filter_count = self.eq.filters.len(),
-                "Reloading pipewire module"
-            );
-            self.load_module();
-        }
-
         if let Some(node_id) = self.active_node_id {
             if before_preamp != self.eq.preamp {
                 self.sync_preamp(node_id);
@@ -636,6 +621,18 @@ where
             if before_bypass != self.eq.bypassed {
                 self.sync_all(node_id, self.sample_rate);
             }
+        }
+
+        if !self.eq.is_noop()
+            && (before_filter_count != self.eq.filters.len() || self.active_node_id.is_none())
+        {
+            // Filter count changed or no active node - (re)load module
+            tracing::debug!(
+                old_filter_count = before_filter_count,
+                new_filter_count = self.eq.filters.len(),
+                "Reloading pipewire module"
+            );
+            self.load_module();
         }
 
         Ok(ControlFlow::Continue(()))

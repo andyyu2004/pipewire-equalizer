@@ -202,8 +202,8 @@ pub fn pw_thread(
 
                 let mut modules = modules.lock().unwrap();
 
-                let (module, reused) = match modules.entry(band_count) {
-                    Entry::Occupied(entry) => (entry.into_mut(), true),
+                let module = match modules.entry(band_count) {
+                    Entry::Occupied(entry) => entry.into_mut(),
                     Entry::Vacant(entry) => {
                         tracing::info!(band_count, "Loading new module for band count");
                         let module = match api::load_module(&context, &name, &spa_json_args) {
@@ -214,7 +214,7 @@ pub fn pw_thread(
                             }
                         };
 
-                        (entry.insert(module), false)
+                        entry.insert(module)
                     }
                 };
 
@@ -223,7 +223,6 @@ pub fn pw_thread(
                     id: info.id(),
                     name: info.name().to_string(),
                     media_name: args.media_name.clone(),
-                    reused,
                 });
             }
         }

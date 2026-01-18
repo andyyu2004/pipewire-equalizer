@@ -793,10 +793,11 @@ where
     }
 
     fn apply_selected_autoeq(&mut self) {
-        if let Some(result) = self
-            .autoeq_browser
-            .apply_selected(self.http_client.clone(), self.notifs_tx.clone())
-        {
+        if let Some(result) = self.autoeq_browser.apply_selected(
+            self.http_client.clone(),
+            self.notifs_tx.clone(),
+            self.sample_rate,
+        ) {
             self.status = Some(result);
         } else {
             self.status = Some(Err("No headphone or target selected".to_string()));

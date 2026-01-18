@@ -125,6 +125,7 @@ impl AutoEqBrowser {
         &self,
         http_client: reqwest::Client,
         notifs_tx: mpsc::Sender<Notif>,
+        sample_rate: u32,
     ) -> Option<Result<String, String>> {
         let (name, entry) = self.selected_entry()?.clone();
         let target = self.selected_target()?;
@@ -142,7 +143,7 @@ impl AutoEqBrowser {
                 name: name.clone(),
                 source,
                 rig,
-                sample_rate: 48000,
+                sample_rate,
             };
 
             match autoeq_api::equalize(&http_client, &request).await {

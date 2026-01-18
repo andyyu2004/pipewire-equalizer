@@ -284,13 +284,12 @@ impl AutoEqBrowser {
         self.update_filtered_results();
 
         // Select default target (Harman over-ear 2018 if available)
-        if let Some(targets) = &self.targets {
-            if let Some(idx) = targets
+        if let Some(targets) = &self.targets
+            && let Some(idx) = targets
                 .iter()
                 .position(|t| t.label.contains("Harman") && t.label.contains("over-ear"))
-            {
-                self.selected_target_index = idx;
-            }
+        {
+            self.selected_target_index = idx;
         }
     }
 

@@ -19,7 +19,7 @@ where
 {
     pub(super) fn draw(&mut self) -> anyhow::Result<()> {
         match self.tab {
-            Tab::Equalizer => self.draw_eq_tab(),
+            Tab::Eq => self.draw_eq_tab(),
             Tab::AutoEq => self.draw_autoeq_tab(),
         }
     }
@@ -113,17 +113,17 @@ where
             let footer = match &self.input_mode {
                 InputMode::Command => Paragraph::new(format!(":{}", self.command_buffer))
                     .style(Style::default().fg(theme.footer)),
-                InputMode::Normal if self.status.is_some() => {
+                InputMode::Eq | InputMode::AutoEq if self.status.is_some() => {
                     let (msg, color) = match self.status.as_ref().unwrap() {
                         Ok(msg) => (msg.as_str(), self.config.theme.status_ok),
                         Err(msg) => (msg.as_str(), self.config.theme.status_error),
                     };
                     Paragraph::new(msg).style(Style::default().fg(color))
                 }
-                InputMode::Normal if self.show_help => Paragraph::new(help_text)
+                InputMode::Eq | InputMode::AutoEq if self.show_help => Paragraph::new(help_text)
                     .style(Style::default().fg(theme.help))
                     .wrap(Wrap { trim: true }),
-                InputMode::Normal => {
+                InputMode::Eq | InputMode::AutoEq => {
                     Paragraph::new("Press ? for help").style(Style::default().fg(theme.footer))
                 }
             };

@@ -53,13 +53,6 @@ enum ViewMode {
     Expert,
 }
 
-#[derive(Clone, Copy, PartialEq, Default)]
-enum Tab {
-    #[default]
-    Equalizer,
-    AutoEq,
-}
-
 #[derive(
     Debug,
     Copy,
@@ -76,8 +69,15 @@ enum Tab {
 #[serde(rename_all = "kebab-case")]
 enum InputMode {
     #[default]
-    Normal,
+    Eq,
+    AutoEq,
     Command,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Tab {
+    Eq,
+    AutoEq,
 }
 
 pub enum Notif {
@@ -313,7 +313,7 @@ where
             show_help: Default::default(),
             view_mode: Default::default(),
             status: Default::default(),
-            tab: Tab::Equalizer,
+            tab: Tab::Eq,
             autoeq_browser: autoeq::AutoEqBrowser::default(),
             http_client: reqwest::Client::new(),
         })
@@ -440,7 +440,7 @@ where
                     num_filters = response.filters.len(),
                     "AutoEQ applied"
                 );
-                self.tab = Tab::Equalizer;
+                self.input_mode = InputMode::Eq;
                 self.eq.preamp = response.preamp;
                 self.eq.filters = autoeq::param_eq_to_filters(response);
                 self.status = Some(Ok(format!("Applied EQ for {}", name)));
@@ -502,32 +502,18 @@ where
         tracing::trace!(?key, mode = ?self.input_mode, "key event");
 
         match &self.input_mode {
-            InputMode::Normal => self.handle_normal_key(key),
             InputMode::Command => self.handle_command_key(key),
-        }
-    }
+            InputMode::Eq | InputMode::AutoEq => {
+                if let Some(action) = self.config.keymap.get(&self.input_mode, &key) {
+                    match self.perform(*action)? {
+                        ControlFlow::Continue(()) => {}
+                        ControlFlow::Break(()) => return Ok(ControlFlow::Break(())),
+                    }
+                }
 
-    fn handle_normal_key(&mut self, key: KeyEvent) -> io::Result<ControlFlow<()>> {
-        assert!(matches!(self.input_mode, InputMode::Normal));
-
-        // Special handling for AutoEQ browser
-        if self.tab == Tab::AutoEq {
-            match self.autoeq_browser.handle_key(key)? {
-                ControlFlow::Continue(()) => return Ok(ControlFlow::Continue(())),
-                ControlFlow::Break(Some(action)) => return self.perform(action),
-                ControlFlow::Break(None) => return Ok(ControlFlow::Continue(())),
+                Ok(ControlFlow::Continue(()))
             }
         }
-
-        // Fall back to configured keymappings
-        if let Some(action) = self.config.keymap.get(&self.input_mode, &key) {
-            match self.perform(*action)? {
-                ControlFlow::Continue(()) => {}
-                ControlFlow::Break(()) => return Ok(ControlFlow::Break(())),
-            }
-        }
-
-        Ok(ControlFlow::Continue(()))
     }
 
     fn cycle_view_mode(&mut self, _rotation: Rotation) {
@@ -546,7 +532,8 @@ where
 
         match action {
             Action::EnterMode(mode) => match mode {
-                InputMode::Normal => self.enter_normal_mode(),
+                InputMode::Eq => self.enter_normal_mode(),
+                InputMode::AutoEq => self.open_autoeq(),
                 InputMode::Command => self.enter_command_mode(),
             },
             Action::ClearStatus => self.status = None,
@@ -570,8 +557,7 @@ where
             Action::ToggleMute => self.eq.toggle_mute(),
             Action::CycleViewMode(rotation) => self.cycle_view_mode(rotation),
             Action::ExecuteCommand => {
-                let InputMode::Command = mem::replace(&mut self.input_mode, InputMode::Normal)
-                else {
+                let InputMode::Command = mem::replace(&mut self.input_mode, InputMode::Eq) else {
                     return Ok(ControlFlow::Continue(()));
                 };
                 let buffer = mem::take(&mut self.command_buffer);
@@ -604,7 +590,7 @@ where
             Action::MoveCursorEnd => self.command_cursor_pos = self.command_buffer.len(),
             Action::OpenAutoEq => self.open_autoeq(),
             Action::CloseAutoEq => {
-                self.tab = Tab::Equalizer;
+                self.tab = Tab::Eq;
             }
             Action::ApplyAutoEq => {
                 self.apply_selected_autoeq();
@@ -650,6 +636,7 @@ where
 
     fn open_autoeq(&mut self) {
         self.tab = Tab::AutoEq;
+        self.input_mode = InputMode::AutoEq;
         self.load_autoeq_data();
     }
 
@@ -683,7 +670,7 @@ where
     }
 
     fn enter_normal_mode(&mut self) {
-        self.input_mode = InputMode::Normal;
+        self.input_mode = InputMode::Eq;
     }
 
     fn enter_command_mode(&mut self) {
@@ -738,7 +725,7 @@ where
         // Group keys by action description
         let mut action_keys: HashMap<String, Vec<String>> = HashMap::new();
 
-        for (key, action) in self.config.keymap.iter_mode(&InputMode::Normal) {
+        for (key, action) in self.config.keymap.iter_mode(&InputMode::Eq) {
             // Special handling for mode switching
             if let Action::EnterMode(InputMode::Command) = action {
                 action_keys

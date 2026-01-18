@@ -75,7 +75,8 @@ impl Action {
             Action::CycleFilterType(..) => Some("cycle type"),
             Action::CycleViewMode(..) => Some("cycle view"),
             Action::EnterMode(mode) => match mode {
-                InputMode::Normal => Some("normal mode"),
+                InputMode::Eq => Some("normal mode"),
+                InputMode::AutoEq => Some("autoeq mode"),
                 InputMode::Command => Some("command mode"),
             },
             Action::OpenAutoEq => Some("autoeq"),

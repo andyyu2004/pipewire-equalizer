@@ -17,11 +17,22 @@ where
     B: Backend + io::Write,
     B::Error: Send + Sync + 'static,
 {
-    fn footer_height(help_len: usize, show_help: bool, terminal_width: u16) -> u16 {
+    fn footer_height(
+        help_len: usize,
+        show_help: bool,
+        has_status: bool,
+        terminal_width: u16,
+    ) -> u16 {
         if show_help {
             let lines_needed =
                 (help_len + terminal_width as usize - 1) / terminal_width.max(1) as usize;
-            lines_needed.clamp(1, 5) as u16
+            let base_lines = lines_needed.clamp(1, 5);
+            // Add 1 extra line if status is also shown
+            if has_status {
+                (base_lines + 1).min(6) as u16
+            } else {
+                base_lines as u16
+            }
         } else {
             1
         }
@@ -34,6 +45,18 @@ where
             InputMode::Command => {
                 // Buffer always contains the prefix (: or /)
                 Paragraph::new(self.command_buffer.clone()).style(Style::default().fg(theme.footer))
+            }
+            InputMode::Eq | InputMode::AutoEq if self.status.is_some() && self.show_help => {
+                // Show both help text and status
+                let (msg, color) = match self.status.as_ref().unwrap() {
+                    Ok(msg) => (msg.to_owned(), theme.status_ok),
+                    Err(msg) => (msg.to_owned(), theme.status_error),
+                };
+                let lines = vec![
+                    Line::from(Span::styled(help_text, Style::default().fg(theme.help))),
+                    Line::from(Span::styled(msg, Style::default().fg(color))),
+                ];
+                Paragraph::new(lines).wrap(Wrap { trim: true })
             }
             InputMode::Eq | InputMode::AutoEq if self.status.is_some() => {
                 let (msg, color) = match self.status.as_ref().unwrap() {
@@ -79,7 +102,8 @@ where
                 Block::default().style(Style::default().bg(theme.background)),
                 f.area(),
             );
-            let footer_height = Self::footer_height(help_len, self.show_help, f.area().width);
+            let footer_height =
+                Self::footer_height(help_len, self.show_help, self.status.is_some(), f.area().width);
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -161,7 +185,8 @@ where
                 f.area(),
             );
 
-            let footer_height = Self::footer_height(help_len, self.show_help, f.area().width);
+            let footer_height =
+                Self::footer_height(help_len, self.show_help, self.status.is_some(), f.area().width);
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)

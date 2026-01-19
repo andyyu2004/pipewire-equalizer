@@ -170,6 +170,7 @@ impl Eq {
         path: impl AsRef<std::path::Path>,
         format: Format,
     ) -> anyhow::Result<()> {
+        let path = path.as_ref();
         let data = match format {
             Format::PwParamEq => {
                 let config = module::Config::from_kinds(
@@ -215,11 +216,11 @@ impl Eq {
         };
 
         if let Some(parent) = path.parent() {
-            if let Err(err) = fs::create_dir_all(parent).await {
-                return Err(format!(
+            if let Err(err) = tokio::fs::create_dir_all(parent).await {
+                anyhow::bail!(
                     "failed to create parent directories for {}: {err}",
                     path.display()
-                ));
+                );
             }
         }
 

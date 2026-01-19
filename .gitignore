@@ -1,3 +1,4 @@
 /target
+.direnv
 *.log
 .gdb_history

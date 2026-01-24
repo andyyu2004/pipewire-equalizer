@@ -939,6 +939,18 @@ where
         match &words[..] {
             ["q" | "quit"] => return Ok(ControlFlow::Break(())),
             ["autoeq"] => self.open_autoeq(),
+            ["sort"] => match self.tab {
+                Tab::Eq => {
+                    self.eq
+                        .filters
+                        .sort_by(|a, b| a.frequency.partial_cmp(&b.frequency).unwrap());
+                    if let Some(node_id) = self.active_node_id {
+                        self.sync_all(node_id, self.sample_rate);
+                    }
+                }
+                // noop for now
+                Tab::AutoEq => {}
+            },
             [cmd @ ("w" | "write" | "w!" | "write!"), args @ ..] => {
                 let force = cmd.ends_with('!');
                 let mut path = match args {

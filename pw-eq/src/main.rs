@@ -33,7 +33,7 @@ struct Args {
 struct CreateArgs {
     /// Name for the EQ (e.g., focal-celestee)
     name: String,
-    /// Path to the file (APO)
+    /// Path to the file (.apo, or pipewire module .conf)
     #[arg(short, long)]
     file: PathBuf,
     /// Overwrite existing EQ configuration if it exists
@@ -326,7 +326,7 @@ async fn run_tui(args: TuiArgs) -> anyhow::Result<()> {
     let (preamp, filters) = match (args.file, args.preset) {
         (Some(_), Some(_)) => unreachable!("clap should prevent this case"),
         (Some(path), None) => match path.extension() {
-            Some(ext) if ext == "conf" => {
+            Some(ext) if ext.eq_ignore_ascii_case("conf") => {
                 let conf = module::Config::parse_file(&path)?;
                 if conf.context_modules.len() != 1 {
                     anyhow::bail!(

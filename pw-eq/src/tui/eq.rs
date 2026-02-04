@@ -215,13 +215,13 @@ impl Eq {
             .to_string(),
         };
 
-        if let Some(parent) = path.parent() {
-            if let Err(err) = tokio::fs::create_dir_all(parent).await {
-                anyhow::bail!(
-                    "failed to create parent directories for {}: {err}",
-                    path.display()
-                );
-            }
+        if let Some(parent) = path.parent()
+            && let Err(err) = tokio::fs::create_dir_all(parent).await
+        {
+            anyhow::bail!(
+                "failed to create parent directories for {}: {err}",
+                path.display()
+            );
         }
 
         tokio::fs::write(path, data).await?;

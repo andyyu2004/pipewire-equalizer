@@ -13,7 +13,7 @@ use serde::{de, forward_to_deserialize_any, ser};
 ///
 /// ```
 /// use serde::{Serialize, Deserialize};
-/// use seredies::{de::Deserializer, ser::Serializer, components::KeyValuePairs};
+/// use serde::{de::Deserializer, ser::Serializer, components::KeyValuePairs};
 ///
 /// let mut buffer: Vec<u8> = Vec::new();
 ///

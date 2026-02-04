@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+            sudo dpkg --add-architecture arm64
+            sudo sed -i 's/deb http/deb [arch=amd64] http/g' /etc/apt/sources.list
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+            sudo apt-get update || true
+            sudo apt-get install -y libpipewire-0.3-dev:arm64 || echo "Warning: Could not install arm64 pipewire dev package"
+          else
+            sudo apt-get install -y libpipewire-0.3-dev
+          fi
+
+      - name: Configure linker for aarch64
+        if: contains(matrix.target, 'aarch64')
+        run: |
+          mkdir -p .cargo
+          echo '[target.aarch64-unknown-linux-gnu]' >> .cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> .cargo/config.toml
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --package pw-eq
+        env:
+          PKG_CONFIG_ALLOW_CROSS: 1
+
+      - name: Create archive
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../pw-eq-${{ matrix.target }}.tar.gz pw-eq
+          cd -
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pw-eq-${{ matrix.target }}
+          path: pw-eq-${{ matrix.target }}.tar.gz
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

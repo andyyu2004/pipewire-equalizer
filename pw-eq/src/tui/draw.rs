@@ -102,8 +102,12 @@ where
                 Block::default().style(Style::default().bg(theme.background)),
                 f.area(),
             );
-            let footer_height =
-                Self::footer_height(help_len, self.show_help, self.status.is_some(), f.area().width);
+            let footer_height = Self::footer_height(
+                help_len,
+                self.show_help,
+                self.status.is_some(),
+                f.area().width,
+            );
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -185,8 +189,12 @@ where
                 f.area(),
             );
 
-            let footer_height =
-                Self::footer_height(help_len, self.show_help, self.status.is_some(), f.area().width);
+            let footer_height = Self::footer_height(
+                help_len,
+                self.show_help,
+                self.status.is_some(),
+                f.area().width,
+            );
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)

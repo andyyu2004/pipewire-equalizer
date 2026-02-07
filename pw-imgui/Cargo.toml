@@ -1,0 +1,22 @@
+[package]
+name = "pw-imgui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["fs", "process"] }
+serde_json.workspace = true
+spa-json.workspace = true
+pipewire.workspace = true
+strum.workspace = true
+winit = "0.30.12"
+glow = "0.16"
+glutin = "0.32"
+glutin-winit = "0.5"
+dear-imgui-rs = "0.8"
+dear-imgui-winit = "0.8"
+dear-imgui-glow = "0.8"
+env_logger = "0.11.8"
+raw-window-handle = "0.6.2"

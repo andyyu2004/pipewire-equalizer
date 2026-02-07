@@ -2,3 +2,4 @@
 .direnv
 *.log
 .gdb_history
+.vscode/

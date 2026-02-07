@@ -5,6 +5,7 @@ members = [
     "keymap",
     "pw-eq",
     "pw-util",
+    "pw-imgui",
     "spa-json",
 ]
 

@@ -1,7 +1,7 @@
 mod action;
-mod autoeq;
+pub mod autoeq;
 mod draw;
-mod eq;
+pub mod eq;
 mod theme;
 
 use crate::{FilterId, UpdateFilter, filter::Filter, update_filters};
@@ -80,6 +80,7 @@ enum Tab {
     AutoEq,
 }
 
+#[derive(Debug)]
 pub enum Notif {
     PwModuleLoaded {
         id: u32,

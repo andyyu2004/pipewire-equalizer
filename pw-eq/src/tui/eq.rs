@@ -12,7 +12,7 @@ use crate::{UpdateFilter, filter::Filter};
 use super::{Format, Rotation};
 
 #[derive(Clone)]
-pub(super) struct Eq {
+pub struct Eq {
     pub name: String,
     pub filters: Vec<Filter>,
     pub selected_idx: usize,

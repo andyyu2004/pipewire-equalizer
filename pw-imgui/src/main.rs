@@ -1,8 +1,13 @@
 use std::{num::NonZeroU32, sync::Arc, time::Instant};
 
+mod state;
+mod autoeq;
+mod filter;
+
 use dear_imgui_glow::GlowRenderer;
 use dear_imgui_rs::*;
 use dear_imgui_winit::{HiDpiMode, WinitPlatform};
+use dear_implot::{PlotContext, ImPlotExt};
 use glow::HasContext;
 use glutin::{
     config::ConfigTemplateBuilder,
@@ -20,16 +25,10 @@ use winit::{
     window::{Window, WindowId},
 };
 
-struct ImguiState {
-    renderer: GlowRenderer,
-    platform: WinitPlatform,
-    context: Context,
-    clear_color: [f32; 4],
-    last_frame: Instant,
-}
+use state::ImguiState;
 
 struct AppWindow {
-    imgui: ImguiState,
+    imgui: state::ImguiState,
     context: PossiblyCurrentContext,
     surface: Surface<WindowSurface>,
     window: Arc<Window>,
@@ -122,11 +121,14 @@ impl AppWindow {
         renderer.new_frame()?;
 
         let imgui = ImguiState {
+            plot_context: PlotContext::create(&imgui_context),
             context: imgui_context,
             platform,
             renderer,
             clear_color: [0.1, 0.2, 0.3, 1.0],
             last_frame: Instant::now(),
+            auto_eq: autoeq::AutoEqWindowState::new(),
+            filter: filter::FilterWindowState::new(),
         };
 
         Ok(Self {
@@ -159,30 +161,20 @@ impl AppWindow {
         self.imgui
             .platform
             .prepare_frame(&self.window, &mut self.imgui.context);
+
         let ui = self.imgui.context.frame();
 
-        // Main window content
-        ui.window("Hello, Dear ImGui Glow!")
-            .size([400.0, 300.0], Condition::FirstUseEver)
-            .build(|| {
-                ui.text("Welcome to Dear ImGui with Glow backend!");
-                ui.separator();
+        let mut opened = true;
+        ui.show_demo_window(&mut opened);
 
-                ui.text(&format!(
-                    "Application average {:.3} ms/frame ({:.1} FPS)",
-                    1000.0 / ui.io().framerate(),
-                    ui.io().framerate()
-                ));
+        // AutoEq window
+        if let Some((name, eq)) = self.imgui.auto_eq.draw_window(ui, self.imgui.filter.sample_rate) {
+            self.imgui.filter.set_eq(name, eq);
+        }
 
-                if ui.color_edit4("Clear color", &mut self.imgui.clear_color) {
-                    // Color updated
-                }
-
-                ui.text("Modern texture management features:");
-                ui.bullet_text("RENDERER_HAS_TEXTURES backend flag");
-                ui.bullet_text("Complete ImTextureData system");
-                ui.bullet_text("Texture registration and updates");
-            });
+        // Filter window
+        let plot_ui = ui.implot(&self.imgui.plot_context);
+        self.imgui.filter.draw_window(ui, &plot_ui);
 
         // Render
         let gl = self.imgui.renderer.gl_context().unwrap();
@@ -281,6 +273,11 @@ impl ApplicationHandler for App {
 
 fn main() {
     env_logger::init();
+
+    // Create a tokio runtime on background threads so async tasks (reqwest, tokio::spawn, etc.)
+    // work without blocking the main thread's winit event loop.
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = rt.enter();
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);

@@ -837,6 +837,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "dear-implot"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "763d6348c596e9c696f274248f8605389d359eb81ec9c5df3e82967cabaf519c"
+dependencies = [
+ "bitflags 2.10.0",
+ "dear-imgui-rs",
+ "dear-imgui-sys",
+ "dear-implot-sys",
+]
+
+[[package]]
+name = "dear-implot-sys"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ca4746eb005d3fbf740d1e6030c38e8c4d3c13ed4e2179dda3a852644a8990d"
+dependencies = [
+ "bindgen",
+ "cc",
+ "cmake",
+ "dear-imgui-build-support",
+ "dear-imgui-sys",
+ "flate2",
+ "pkg-config",
+ "tar",
+ "xshell",
+]
+
+[[package]]
 name = "deltae"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2864,12 +2893,16 @@ dependencies = [
  "dear-imgui-glow",
  "dear-imgui-rs",
  "dear-imgui-winit",
+ "dear-implot",
  "env_logger",
  "glow",
  "glutin",
  "glutin-winit",
  "pipewire",
+ "pw-eq",
+ "pw-util",
  "raw-window-handle",
+ "reqwest 0.13.1",
  "serde",
  "serde_json",
  "spa-json",

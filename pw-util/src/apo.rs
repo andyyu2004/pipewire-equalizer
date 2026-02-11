@@ -29,15 +29,7 @@ impl fmt::Display for Config {
                 "Filter {}: {} {} Fc {:.1} Hz Gain {:.1} dB Q {:.6}",
                 filter.number,
                 if filter.enabled { "ON" } else { "OFF" },
-                match filter.filter_type {
-                    FilterType::LowShelf => "LSC",
-                    FilterType::LowPass => "LPQ",
-                    FilterType::Peaking => "PK",
-                    FilterType::BandPass => "BP",
-                    FilterType::Notch => "NO",
-                    FilterType::HighPass => "HPQ",
-                    FilterType::HighShelf => "HSC",
-                },
+                filter.filter_type,
                 filter.frequency,
                 filter.gain,
                 filter.q

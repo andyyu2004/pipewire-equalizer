@@ -4,6 +4,8 @@ use pw_util::module::FilterType;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
+pub use autoeq_api::ParametricEq;
+
 use super::Notif;
 
 #[derive(Debug, Default)]

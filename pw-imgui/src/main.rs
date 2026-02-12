@@ -56,7 +56,6 @@ impl AppWindow {
         let window = window.unwrap();
 
         let scale_factor = window.scale_factor();
-        println!("Scale factor: {}", scale_factor);
 
         let window = Arc::new(window);
 
@@ -212,7 +211,6 @@ impl ApplicationHandler for App {
                     // Request initial redraw to start the render loop
                     window.window.request_redraw();
                     self.window = Some(window);
-                    println!("Window created successfully");
                 }
                 Err(e) => {
                     eprintln!("Failed to create window: {e}");

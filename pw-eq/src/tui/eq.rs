@@ -58,16 +58,16 @@ impl Eq {
             return;
         }
 
-        let current_band = &self.filters[self.selected_idx];
-
         // Calculate new frequency between current and next band
-        let new_freq = if self.selected_idx + 1 < self.filters.len() {
-            let next_band = &self.filters[self.selected_idx + 1];
-            // Geometric mean (better for logarithmic frequency scale)
-            (current_band.frequency * next_band.frequency).sqrt()
-        } else {
-            // If at the end, go halfway to 20kHz in log space
-            (current_band.frequency * 20000.0).sqrt().min(20000.0)
+        let new_freq = match self.filters.len() {
+            0 => 100.0,
+            len if self.selected_idx + 1 < len => {
+                let current_band = &self.filters[self.selected_idx];
+                let next_band = &self.filters[self.selected_idx + 1];
+                // Geometric mean (better for logarithmic frequency scale)
+                (current_band.frequency * next_band.frequency).sqrt()
+            }
+            _ => (self.filters.last().unwrap().frequency * 20000.0).sqrt().min(20000.0),
         };
 
         let new_filter = Filter {
@@ -78,7 +78,13 @@ impl Eq {
             muted: false,
         };
 
-        self.filters.insert(self.selected_idx + 1, new_filter);
+        if self.selected_idx + 1 <= self.filters.len() {
+            self.filters.insert(self.selected_idx + 1, new_filter);
+        }
+        else {
+            self.filters.push(new_filter);
+        }
+
         self.selected_idx += 1;
     }
 

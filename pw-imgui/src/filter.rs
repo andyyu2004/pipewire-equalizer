@@ -1,9 +1,7 @@
 use std::ops::Range;
 
-use dear_imgui_rs::{
-    Condition, TableColumnSetup, TableFlags, Ui, WindowFlags,
-};
-use dear_implot::{AxisFlags, LinePlot, Plot, PlotCond, PlotUi, XAxis};
+use dear_imgui_rs::{Condition, TableColumnSetup, TableFlags, Ui, WindowFlags};
+use dear_implot::{AxisFlags, PlotCond, PlotUi, XAxis};
 use pw_eq::tui::{
     autoeq::{self, param_eq_to_filters},
     eq::Eq,
@@ -59,26 +57,35 @@ impl FilterWindowState {
         }
     }
 
-    fn draw_filters(&mut self, ui: &Ui) {
+    fn draw_filters(&mut self, ui: &Ui) -> bool {
         let columns = [
-            TableColumnSetup::new("#").init_width_or_weight(6.0),
+            TableColumnSetup::new("#").init_width_or_weight(12.0),
             TableColumnSetup::new("Type").init_width_or_weight(12.0),
             TableColumnSetup::new("Freq").init_width_or_weight(30.0),
             TableColumnSetup::new("Gain").init_width_or_weight(30.0),
             TableColumnSetup::new("Q").init_width_or_weight(25.0),
         ];
 
-        let flags = TableFlags::BORDERS
-            | TableFlags::BORDERS_OUTER
-            | TableFlags::SIZING_STRETCH_PROP;
+        let flags =
+            TableFlags::BORDERS | TableFlags::BORDERS_OUTER | TableFlags::SIZING_STRETCH_PROP;
 
         let mut needs_recalc = false;
+        let mut table_hovered = false;
 
         ui.table("##filters")
             .flags(flags)
             .columns(columns)
             .headers(true)
             .build(|ui| {
+                let mut delete_filter = false;
+                let mut add_filter = false;
+
+                let hovered_row = ui.table_get_hovered_row();
+                if hovered_row > 0 {
+                    table_hovered = true;
+                    self.eq.selected_idx = (hovered_row-1) as usize;
+                }
+
                 for (i, filter) in self.eq.filters.iter_mut().enumerate() {
                     ui.table_next_row();
 
@@ -86,9 +93,19 @@ impl FilterWindowState {
                         let row_id = format!("{}", i);
                         let _id_tok = ui.push_id(&row_id);
 
-                        // #
+                        // #, add/remove buttons
                         ui.table_next_column();
                         ui.text(i.to_string());
+                        ui.same_line();
+                        if ui.button("-") {
+                            delete_filter = true;
+                            needs_recalc = true;
+                        }
+                        ui.same_line_with_spacing(0.0, 1.0);
+                        if ui.button("+") {
+                            add_filter = true;
+                            needs_recalc = true;
+                        }
 
                         // Type
                         ui.table_next_column();
@@ -102,7 +119,8 @@ impl FilterWindowState {
                         // Freq
                         ui.table_next_column();
                         let _width_tok = ui.push_item_width(-1.0);
-                        needs_recalc |= ui.input_double_config("##freq")
+                        needs_recalc |= ui
+                            .input_double_config("##freq")
                             .step(10.0)
                             .step_fast(100.0)
                             .build(&mut filter.frequency);
@@ -110,25 +128,45 @@ impl FilterWindowState {
                         // Gain
                         ui.table_next_column();
                         let _width_tok = ui.push_item_width(-1.0);
-                        needs_recalc |= ui.slider_config("##gain", -12.0, 12.0).build(&mut filter.gain);
+                        needs_recalc |= ui
+                            .slider_config("##gain", -12.0, 12.0)
+                            .build(&mut filter.gain);
 
                         // Q
                         ui.table_next_column();
                         let _width_tok = ui.push_item_width(-1.0);
-                        needs_recalc |= ui.input_double_config("##q")
+                        needs_recalc |= ui
+                            .input_double_config("##q")
                             .step(0.1)
                             .step(1.0)
                             .build(&mut filter.q);
+                        filter.q = f64::max(filter.q, 0.1);
                     }
                 }
+
+                if delete_filter {
+                    self.eq.delete_selected_filter();
+                }
+
+                if add_filter {
+                    self.eq.add_filter();
+                }
             });
+
+        if ui.button("+") {
+            self.eq.selected_idx = self.eq.filters.len();
+            self.eq.add_filter();
+            needs_recalc = true;
+        }
 
         if needs_recalc {
             self.recalc_curve();
         }
+
+        return table_hovered;
     }
 
-    fn draw_curve(&mut self, _ui: &Ui, plot_ui: &PlotUi) {
+    fn draw_curve(&mut self, _ui: &Ui, plot_ui: &PlotUi, table_hovered: bool) {
         if self.curve_y.is_empty() {
             return;
         }
@@ -148,7 +186,13 @@ impl FilterWindowState {
                 PlotCond::Always,
             );
 
-            LinePlot::new("", &self.curve_x, &self.curve_y).plot();
+            let _ = plot_ui.line_plot("", &self.curve_x, &self.curve_y);
+
+            if table_hovered {
+                let freq = self.eq.filters[self.eq.selected_idx].frequency;
+                let lines = [freq];
+                let _ = plot_ui.inf_lines_vertical("##hovered", &lines);
+            }
         }
     }
 
@@ -178,12 +222,13 @@ impl FilterWindowState {
                 }
                 ui.checkbox("Enable", &mut self.preamp_enable);
 
-                // Filter list
+                // Filter table
+                let mut table_hovered = false;
                 ui.child_window("Filters")
                     .border(false)
                     .size([-1.0, 300.0])
                     .build(ui, || {
-                        self.draw_filters(ui);
+                        table_hovered = self.draw_filters(ui);
                     });
 
                 // Freq response curve
@@ -191,7 +236,7 @@ impl FilterWindowState {
                     .border(false)
                     .size([-1.0, -1.0])
                     .build(ui, || {
-                        self.draw_curve(ui, plot_ui);
+                        self.draw_curve(ui, plot_ui, table_hovered);
                     });
             });
     }

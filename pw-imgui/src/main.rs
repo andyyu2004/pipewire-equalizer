@@ -53,11 +53,7 @@ impl AppWindow {
             })?;
 
         assert!(window.is_some());
-        let window = window.unwrap();
-
-        let scale_factor = window.scale_factor();
-
-        let window = Arc::new(window);
+        let window = Arc::new(window.unwrap());
 
         // Create OpenGL context
         let context_attribs =
@@ -245,6 +241,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CloseRequested => {
                 println!("Close requested");
+                window.imgui.filter.close();
                 event_loop.exit();
             }
             WindowEvent::KeyboardInput { event, .. } => {

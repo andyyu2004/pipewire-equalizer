@@ -2908,6 +2908,7 @@ dependencies = [
  "spa-json",
  "strum 0.26.3",
  "tokio",
+ "tracing",
  "winit",
 ]
 

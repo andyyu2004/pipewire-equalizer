@@ -266,13 +266,9 @@ impl ApplicationHandler for App {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
-
-    // Create a tokio runtime on background threads so async tasks (reqwest, tokio::spawn, etc.)
-    // work without blocking the main thread's winit event loop.
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let _guard = rt.enter();
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);

@@ -10,12 +10,11 @@ pub struct AutoEqWindowState {
     status_text: String,
     http_client: reqwest::Client,
     notifs_tx: mpsc::Sender<Notif>,
-    notifs_rx: mpsc::Receiver<Notif>,
+    eq_to_set: Option<(String, ParametricEq)>,
 }
 
 impl AutoEqWindowState {
-    pub fn new() -> Self {
-        let (notifs_tx, notifs_rx) = mpsc::channel(32);
+    pub fn new(notifs_tx: mpsc::Sender<Notif>) -> Self {
         Self {
             show_window: false,
             search_text: String::new(),
@@ -24,31 +23,29 @@ impl AutoEqWindowState {
             selected: None,
             http_client: reqwest::Client::new(),
             notifs_tx,
-            notifs_rx,
+            eq_to_set: None,
         }
     }
 
-    // Returns name and parametric eq filter if one was applied in the UI
-    pub fn draw_window(&mut self, ui: &Ui, sample_rate: u32) -> Option<(String, ParametricEq)> {
-        let mut result = None;
+    pub fn auto_eq_db_loaded(&mut self, entries: autoeq_api::Entries, targets: Vec<autoeq_api::Target>) {
+        self.autoeq_browser.on_data_loaded(entries, targets);
+        self.status_text = String::default();
+    }
 
+    pub fn auto_eq_loaded(&mut self, name: String, response: ParametricEq) {
+        self.eq_to_set = Some((name, response));
+        self.status_text = String::default();
+    }
+
+    pub fn get_eq_to_set(&mut self) -> Option<(String, ParametricEq)> {
+        return self.eq_to_set.take();
+    }
+
+    // Returns name and parametric eq filter if one was applied in the UI
+    pub fn draw_window(&mut self, ui: &Ui, sample_rate: u32) {
         if !self.autoeq_browser.loading && self.autoeq_browser.entries.is_none() {
             self.autoeq_browser.load_data(self.http_client.clone(), self.notifs_tx.clone());
             self.status_text = String::from("Loading AutoEQ DB ...");
-        }
-
-        if let Ok(notif) = self.notifs_rx.try_recv() {
-            match notif {
-                Notif::AutoEqDbLoaded { entries, targets } => {
-                    self.autoeq_browser.on_data_loaded(entries, targets);
-                    self.status_text = String::default();
-                },
-                Notif::AutoEqLoaded { name, response } => {
-                    result = Some((name, response));
-                    self.status_text = String::default();
-                }
-                _ => (),
-            }
         }
 
         let columns = [
@@ -118,7 +115,5 @@ impl AutoEqWindowState {
                     ui.text(self.status_text.as_str());
                 }
             });
-
-        result
     }
 }

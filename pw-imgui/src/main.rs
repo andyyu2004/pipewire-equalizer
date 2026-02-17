@@ -1,6 +1,7 @@
 use std::{num::NonZeroU32, sync::Arc, time::Instant};
 
 mod state;
+mod pipewire;
 mod autoeq;
 mod filter;
 
@@ -15,6 +16,7 @@ use glutin::{
     display::{GetGlDisplay, GlDisplay},
     surface::{GlSurface, Surface, SurfaceAttributesBuilder, WindowSurface},
 };
+use pw_util::NodeInfo;
 use raw_window_handle::HasWindowHandle;
 use winit::{
     application::ApplicationHandler,
@@ -26,21 +28,23 @@ use winit::{
 };
 
 use state::ImguiState;
+use pipewire::PipewireState;
 
 struct AppWindow {
-    imgui: state::ImguiState,
+    imgui: ImguiState,
     context: PossiblyCurrentContext,
     surface: Surface<WindowSurface>,
     window: Arc<Window>,
+    pipewire: PipewireState,
 }
 
-#[derive(Default)]
 struct App {
     window: Option<AppWindow>,
+    default_audio_sink: Option<NodeInfo>,
 }
 
 impl AppWindow {
-    fn new(event_loop: &ActiveEventLoop) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(event_loop: &ActiveEventLoop, default_audio_sink: Option<NodeInfo>) -> Result<Self, Box<dyn std::error::Error>> {
         // Create window with OpenGL context
         let window_attributes = winit::window::Window::default_attributes()
             .with_title("pw-imgui")
@@ -115,6 +119,8 @@ impl AppWindow {
         renderer.set_framebuffer_srgb_enabled(true);
         renderer.new_frame()?;
 
+        let pipewire = PipewireState::new(default_audio_sink);
+
         let imgui = ImguiState {
             plot_context: PlotContext::create(&imgui_context),
             context: imgui_context,
@@ -122,8 +128,8 @@ impl AppWindow {
             renderer,
             clear_color: [0.1, 0.2, 0.3, 1.0],
             last_frame: Instant::now(),
-            auto_eq: autoeq::AutoEqWindowState::new(),
-            filter: filter::FilterWindowState::new(),
+            auto_eq: autoeq::AutoEqWindowState::new(pipewire.notifs_tx.clone()),
+            filter: filter::FilterWindowState::new(pipewire.sample_rate),
         };
 
         Ok(Self {
@@ -131,6 +137,7 @@ impl AppWindow {
             surface,
             context,
             imgui,
+            pipewire,
         })
     }
 
@@ -163,13 +170,14 @@ impl AppWindow {
         ui.show_demo_window(&mut opened);
 
         // AutoEq window
-        if let Some((name, eq)) = self.imgui.auto_eq.draw_window(ui, self.imgui.filter.sample_rate) {
+        self.imgui.auto_eq.draw_window(ui, self.pipewire.sample_rate);
+        if let Some((name, eq)) = self.imgui.auto_eq.get_eq_to_set(){
             self.imgui.filter.set_eq(name, eq);
         }
 
         // Filter window
         let plot_ui = ui.implot(&self.imgui.plot_context);
-        self.imgui.filter.draw_window(ui, &plot_ui);
+        self.imgui.filter.draw_window(ui, &plot_ui, self.pipewire.sample_rate);
 
         // Render
         let gl = self.imgui.renderer.gl_context().unwrap();
@@ -195,6 +203,9 @@ impl AppWindow {
         self.imgui.renderer.render(&draw_data)?;
 
         self.surface.swap_buffers(&self.context)?;
+
+        self.pipewire.update(&mut self.imgui.auto_eq);
+
         Ok(())
     }
 }
@@ -202,7 +213,7 @@ impl AppWindow {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
-            match AppWindow::new(event_loop) {
+            match AppWindow::new(event_loop, self.default_audio_sink.take()) {
                 Ok(window) => {
                     // Request initial redraw to start the render loop
                     window.window.request_redraw();
@@ -241,7 +252,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CloseRequested => {
                 println!("Close requested");
-                window.imgui.filter.close();
+                window.pipewire.close();
                 event_loop.exit();
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -270,9 +281,25 @@ impl ApplicationHandler for App {
 async fn main() {
     env_logger::init();
 
+    let default_audio_sink = match pw_util::get_default_audio_sink().await {
+        Ok(node) => { tracing::info!(?node, "detected default audio sink"); Some(node) }
+        Err(err) => { tracing::error!(error = &*err, "failed to get default audio sink"); None }
+    };
+
+    if default_audio_sink.is_none() {
+        println!("Unable to get default audio sink");
+    }
+    else {
+        println!("Got default audio sink");
+    }
+
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::default();
+    let mut app = App {
+        window: None,
+        default_audio_sink: default_audio_sink
+    };
+
     event_loop.run_app(&mut app).unwrap();
 }

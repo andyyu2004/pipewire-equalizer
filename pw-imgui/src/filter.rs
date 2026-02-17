@@ -1,74 +1,40 @@
 use std::{
     ops::Range,
-    thread::{self, JoinHandle},
 };
 
 use dear_imgui_rs::{Condition, TableColumnSetup, TableFlags, Ui, WindowFlags};
 use dear_implot::{AxisFlags, PlotCond, PlotUi, XAxis};
 use pw_eq::{
-    pw,
     tui::{
-        Notif,
         autoeq::{self, param_eq_to_filters},
         eq::Eq,
     },
 };
 use pw_util::module::FilterType;
 use strum::IntoEnumIterator;
-use tokio::sync::mpsc;
 
 pub struct FilterWindowState {
     pub show_window: bool,
     pub eq: Eq,
     pub preamp_enable: bool,
-    pub sample_rate: u32,
+    sample_rate: u32,
     curve_x: Vec<f64>,
     curve_y: Vec<f64>,
     range_y: Range<f64>,
     filter_types: Vec<String>,
-    pw_tx: pipewire::channel::Sender<pw::Message>,
-    notifs: mpsc::Receiver<Notif>,
-    notifs_tx: mpsc::Sender<Notif>,
-    pw_handle: Option<JoinHandle<anyhow::Result<()>>>,
 }
 
 impl FilterWindowState {
-    pub fn new() -> Self {
-        // let default_audio_sink = match pw_util::get_default_audio_sink().await {
-        //     Ok(node) => { tracing::info!(?node, "detected default audio sink"); Some(node) }
-        //     Err(err) => { tracing::error!(error = &*err, "failed to get default audio sink"); None }
-        // };
-        let (pw_tx, rx) = pipewire::channel::channel();
-        let (notifs_tx, notifs) = mpsc::channel(100);
-        let pw_notifs_tx = notifs_tx.clone();
-        let pw_handle =
-            thread::spawn(|| pw_eq::pw::pw_thread(pw_notifs_tx, rx, None));
-
+    pub fn new(sample_rate: u32) -> Self {
         Self {
             show_window: true,
             eq: Eq::new("empty", []),
             preamp_enable: true,
-            sample_rate: 44100,
+            sample_rate: sample_rate,
             curve_x: vec![],
             curve_y: vec![],
             range_y: -1.0..1.0,
             filter_types: FilterType::iter().map(|ft| ft.to_string()).collect(),
-            pw_tx: pw_tx,
-            notifs: notifs,
-            notifs_tx: notifs_tx,
-            pw_handle: Some(pw_handle),
-        }
-    }
-
-    pub fn close(&mut self) {
-        let _ = self.pw_tx.send(pw::Message::Terminate);
-
-        if let Some(handle) = self.pw_handle.take() {
-            match handle.join() {
-                Ok(Ok(())) => tracing::info!("PipeWire thread exited cleanly"),
-                Ok(Err(err)) => tracing::error!(error = &*err, "PipeWire thread exited with error"),
-                Err(err) => tracing::error!(error = ?err, "PipeWire thread panicked"),
-            }
         }
     }
 
@@ -234,7 +200,8 @@ impl FilterWindowState {
         }
     }
 
-    pub fn draw_window(&mut self, ui: &Ui, plot_ui: &PlotUi) {
+    pub fn draw_window(&mut self, ui: &Ui, plot_ui: &PlotUi, sample_rate: u32) {
+        self.sample_rate = sample_rate;
         ui.window("Filter")
             .size([600.0, 780.0], Condition::FirstUseEver)
             .flags(WindowFlags::NO_RESIZE)

@@ -38,7 +38,7 @@ impl AutoEqWindowState {
     }
 
     pub fn get_eq_to_set(&mut self) -> Option<(String, ParametricEq)> {
-        return self.eq_to_set.take();
+        self.eq_to_set.take()
     }
 
     // Returns name and parametric eq filter if one was applied in the UI
@@ -88,7 +88,7 @@ impl AutoEqWindowState {
                                 ui.table_next_column();
                                 let _id = ui.push_id(&row_id);
                                 let selected = ui.selectable_config(&name)
-                                    .selected(self.selected.map_or(false, |s| {s == i}))
+                                    .selected(self.selected == Some(i))
                                     .allow_double_click(true)
                                     .span_all_columns(true)
                                     .build();

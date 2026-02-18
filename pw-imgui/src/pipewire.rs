@@ -22,11 +22,11 @@ impl PipewireState {
         let pw_handle =
             thread::spawn(|| pw_eq::pw::pw_thread(pw_notifs_tx, rx, default_audio_sink));
 
-        return Self {
-            notifs_tx: notifs_tx,
-            pw_tx: pw_tx,
+        Self {
+            notifs_tx,
+            pw_tx,
             sample_rate: 48000,
-            notifs_rx: notifs_rx,
+            notifs_rx,
             pw_handle: Some(pw_handle),
         }
     }
@@ -52,7 +52,7 @@ impl PipewireState {
                 Notif::AutoEqLoaded { name, response } => {
                     autoeq_window.auto_eq_loaded(name, response);
                 },
-                Notif::PwModuleLoaded { id, name, media_name } => {
+                Notif::PwModuleLoaded { id, name, media_name: _ } => {
                     println!("Module loaded id {}, name {}", id, name);
                 },
                 _ => (),

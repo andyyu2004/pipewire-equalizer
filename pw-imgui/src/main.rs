@@ -1,14 +1,14 @@
 use std::{num::NonZeroU32, sync::Arc, time::Instant};
 
-mod state;
-mod pipewire;
 mod autoeq;
 mod filter;
+mod pipewire;
+mod state;
 
 use dear_imgui_glow::GlowRenderer;
 use dear_imgui_rs::*;
 use dear_imgui_winit::{HiDpiMode, WinitPlatform};
-use dear_implot::{PlotContext, ImPlotExt};
+use dear_implot::{ImPlotExt, PlotContext};
 use glow::HasContext;
 use glutin::{
     config::ConfigTemplateBuilder,
@@ -27,8 +27,8 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use state::ImguiState;
 use pipewire::PipewireState;
+use state::ImguiState;
 
 struct AppWindow {
     imgui: ImguiState,
@@ -44,7 +44,10 @@ struct App {
 }
 
 impl AppWindow {
-    fn new(event_loop: &ActiveEventLoop, default_audio_sink: Option<NodeInfo>) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(
+        event_loop: &ActiveEventLoop,
+        default_audio_sink: Option<NodeInfo>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         // Create window with OpenGL context
         let window_attributes = winit::window::Window::default_attributes()
             .with_title("pw-imgui")
@@ -100,11 +103,7 @@ impl AppWindow {
         } else {
             HiDpiMode::Default
         };
-        platform.attach_window(
-            &window,
-            dpi_mode,
-            &mut imgui_context,
-        );
+        platform.attach_window(&window, dpi_mode, &mut imgui_context);
 
         // Create Glow context and renderer
         let gl = unsafe {
@@ -170,14 +169,18 @@ impl AppWindow {
         ui.show_demo_window(&mut opened);
 
         // AutoEq window
-        self.imgui.auto_eq.draw_window(ui, self.pipewire.sample_rate);
-        if let Some((name, eq)) = self.imgui.auto_eq.get_eq_to_set(){
+        self.imgui
+            .auto_eq
+            .draw_window(ui, self.pipewire.sample_rate);
+        if let Some((name, eq)) = self.imgui.auto_eq.get_eq_to_set() {
             self.imgui.filter.set_eq(name, eq);
         }
 
         // Filter window
         let plot_ui = ui.implot(&self.imgui.plot_context);
-        self.imgui.filter.draw_window(ui, &plot_ui, self.pipewire.sample_rate);
+        self.imgui
+            .filter
+            .draw_window(ui, &plot_ui, self.pipewire.sample_rate);
 
         // Render
         let gl = self.imgui.renderer.gl_context().unwrap();
@@ -194,9 +197,7 @@ impl AppWindow {
             gl.disable(glow::FRAMEBUFFER_SRGB);
         }
 
-        self.imgui
-            .platform
-            .prepare_render_with_ui(ui, &self.window);
+        self.imgui.platform.prepare_render_with_ui(ui, &self.window);
         let draw_data = self.imgui.context.render();
 
         self.imgui.renderer.new_frame()?;
@@ -204,7 +205,8 @@ impl AppWindow {
 
         self.surface.swap_buffers(&self.context)?;
 
-        self.pipewire.update(&mut self.imgui.auto_eq);
+        self.pipewire
+            .update(&mut self.imgui.filter, &mut self.imgui.auto_eq);
 
         Ok(())
     }
@@ -282,14 +284,19 @@ async fn main() {
     env_logger::init();
 
     let default_audio_sink = match pw_util::get_default_audio_sink().await {
-        Ok(node) => { tracing::info!(?node, "detected default audio sink"); Some(node) }
-        Err(err) => { tracing::error!(error = &*err, "failed to get default audio sink"); None }
+        Ok(node) => {
+            tracing::info!(?node, "detected default audio sink");
+            Some(node)
+        }
+        Err(err) => {
+            tracing::error!(error = &*err, "failed to get default audio sink");
+            None
+        }
     };
 
     if default_audio_sink.is_none() {
         println!("Unable to get default audio sink");
-    }
-    else {
+    } else {
         println!("Got default audio sink");
     }
 
@@ -298,7 +305,7 @@ async fn main() {
 
     let mut app = App {
         window: None,
-        default_audio_sink
+        default_audio_sink,
     };
 
     event_loop.run_app(&mut app).unwrap();

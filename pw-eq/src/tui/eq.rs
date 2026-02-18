@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use pw_util::{
     apo::{self, FilterType},
     module::{
@@ -7,7 +9,7 @@ use pw_util::{
 };
 use strum::IntoEnumIterator;
 
-use crate::{UpdateFilter, filter::Filter};
+use crate::{FilterId, UpdateFilter, filter::Filter};
 
 use super::{Format, Rotation};
 
@@ -67,7 +69,9 @@ impl Eq {
                 // Geometric mean (better for logarithmic frequency scale)
                 (current_band.frequency * next_band.frequency).sqrt()
             }
-            _ => (self.filters.last().unwrap().frequency * 20000.0).sqrt().min(20000.0),
+            _ => (self.filters.last().unwrap().frequency * 20000.0)
+                .sqrt()
+                .min(20000.0),
         };
 
         let new_filter = Filter {
@@ -80,8 +84,7 @@ impl Eq {
 
         if self.selected_idx < self.filters.len() {
             self.filters.insert(self.selected_idx + 1, new_filter);
-        }
-        else {
+        } else {
             self.filters.push(new_filter);
         }
 
@@ -222,12 +225,13 @@ impl Eq {
         };
 
         if let Some(parent) = path.parent()
-            && let Err(err) = tokio::fs::create_dir_all(parent).await {
-                anyhow::bail!(
-                    "failed to create parent directories for {}: {err}",
-                    path.display()
-                );
-            }
+            && let Err(err) = tokio::fs::create_dir_all(parent).await
+        {
+            anyhow::bail!(
+                "failed to create parent directories for {}: {err}",
+                path.display()
+            );
+        }
 
         tokio::fs::write(path, data).await?;
 
@@ -282,5 +286,18 @@ impl Eq {
                 (freq, total_db)
             })
             .collect()
+    }
+
+    pub fn build_all_updates(&self, sample_rate: u32) -> Vec<(FilterId, UpdateFilter)> {
+        let mut updates = Vec::with_capacity(self.filters.len() + 1);
+
+        updates.push((FilterId::Preamp, self.build_preamp_update()));
+
+        for idx in 0..self.filters.len() {
+            let id = FilterId::Index(NonZero::new(idx + 1).unwrap());
+            updates.push((id, self.build_filter_update(idx, sample_rate)));
+        }
+
+        updates
     }
 }

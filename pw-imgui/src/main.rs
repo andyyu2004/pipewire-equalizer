@@ -196,11 +196,11 @@ impl AppWindow {
 
         self.imgui
             .platform
-            .prepare_render_with_ui(&ui, &self.window);
+            .prepare_render_with_ui(ui, &self.window);
         let draw_data = self.imgui.context.render();
 
         self.imgui.renderer.new_frame()?;
-        self.imgui.renderer.render(&draw_data)?;
+        self.imgui.renderer.render(draw_data)?;
 
         self.surface.swap_buffers(&self.context)?;
 
@@ -298,7 +298,7 @@ async fn main() {
 
     let mut app = App {
         window: None,
-        default_audio_sink: default_audio_sink
+        default_audio_sink
     };
 
     event_loop.run_app(&mut app).unwrap();

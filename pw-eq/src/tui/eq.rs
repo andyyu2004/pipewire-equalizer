@@ -78,7 +78,7 @@ impl Eq {
             muted: false,
         };
 
-        if self.selected_idx + 1 <= self.filters.len() {
+        if self.selected_idx < self.filters.len() {
             self.filters.insert(self.selected_idx + 1, new_filter);
         }
         else {
@@ -221,14 +221,13 @@ impl Eq {
             .to_string(),
         };
 
-        if let Some(parent) = path.parent() {
-            if let Err(err) = tokio::fs::create_dir_all(parent).await {
+        if let Some(parent) = path.parent()
+            && let Err(err) = tokio::fs::create_dir_all(parent).await {
                 anyhow::bail!(
                     "failed to create parent directories for {}: {err}",
                     path.display()
                 );
             }
-        }
 
         tokio::fs::write(path, data).await?;
 

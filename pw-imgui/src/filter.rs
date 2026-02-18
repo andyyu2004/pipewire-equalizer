@@ -30,7 +30,7 @@ impl FilterWindowState {
             show_window: true,
             eq: Eq::new("empty", []),
             preamp_enable: true,
-            sample_rate: sample_rate,
+            sample_rate,
             curve_x: vec![],
             curve_y: vec![],
             range_y: -1.0..1.0,
@@ -167,7 +167,7 @@ impl FilterWindowState {
             self.recalc_curve();
         }
 
-        return table_hovered;
+        table_hovered
     }
 
     fn draw_curve(&mut self, _ui: &Ui, plot_ui: &PlotUi, table_hovered: bool) {
@@ -221,7 +221,7 @@ impl FilterWindowState {
                     let _tok = ui.begin_disabled_with_cond(!self.preamp_enable);
                     ui.text("Preamp (dB):");
                     ui.same_line();
-                    ui.slider_config("##preamp", -10.0 as f64, 10.0 as f64)
+                    ui.slider_config("##preamp", -10.0_f64 , 10.0_f64)
                         .build(&mut self.eq.preamp);
                     ui.same_line();
                 }

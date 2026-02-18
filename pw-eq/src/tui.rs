@@ -41,7 +41,7 @@ pub enum Format {
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(super) enum Rotation {
+pub enum Rotation {
     Clockwise,
     CounterClockwise,
 }
@@ -505,15 +505,7 @@ where
 
     // Sync preamp and all filters to PipeWire
     fn sync_all(&self, node_id: u32, sample_rate: u32) {
-        let mut updates = Vec::with_capacity(self.eq.filters.len() + 1);
-
-        updates.push((FilterId::Preamp, self.eq.build_preamp_update()));
-
-        for idx in 0..self.eq.filters.len() {
-            let id = FilterId::Index(NonZero::new(idx + 1).unwrap());
-            updates.push((id, self.eq.build_filter_update(idx, sample_rate)));
-        }
-
+        let updates = self.eq.build_all_updates(sample_rate);
         self.apply_updates(node_id, updates);
     }
 

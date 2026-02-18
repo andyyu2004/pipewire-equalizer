@@ -1,10 +1,11 @@
 use std::thread::{self, JoinHandle};
 
+use futures_executor::block_on;
 use pw_eq::{pw, tui::Notif};
 use pw_util::NodeInfo;
 use tokio::sync::mpsc;
 
-use crate::autoeq::AutoEqWindowState;
+use crate::{autoeq::AutoEqWindowState, filter::FilterWindowState};
 
 pub struct PipewireState {
     pub notifs_tx: mpsc::Sender<Notif>,
@@ -12,6 +13,7 @@ pub struct PipewireState {
     pub sample_rate: u32,
     notifs_rx: mpsc::Receiver<Notif>,
     pw_handle: Option<JoinHandle<anyhow::Result<()>>>,
+    active_node_id: Option<u32>,
 }
 
 impl PipewireState {
@@ -25,8 +27,9 @@ impl PipewireState {
         Self {
             notifs_tx,
             pw_tx,
-            sample_rate: 48000,
             notifs_rx,
+            sample_rate: 48000,
+            active_node_id: None,
             pw_handle: Some(pw_handle),
         }
     }
@@ -43,18 +46,57 @@ impl PipewireState {
         }
     }
 
-    pub fn update(&mut self, autoeq_window: &mut AutoEqWindowState) {
+    pub fn update(
+        &mut self,
+        filter_window: &mut FilterWindowState,
+        autoeq_window: &mut AutoEqWindowState,
+    ) {
+        if let Some(node_id) = self.active_node_id {
+            filter_window.sync(node_id);
+        }
+
         if let Ok(notif) = self.notifs_rx.try_recv() {
             match notif {
                 Notif::AutoEqDbLoaded { entries, targets } => {
                     autoeq_window.auto_eq_db_loaded(entries, targets);
-                },
+                }
                 Notif::AutoEqLoaded { name, response } => {
                     autoeq_window.auto_eq_loaded(name, response);
-                },
-                Notif::PwModuleLoaded { id, name, media_name: _ } => {
+                }
+                Notif::PwModuleLoaded {
+                    id,
+                    name,
+                    media_name,
+                } => {
                     println!("Module loaded id {}, name {}", id, name);
-                },
+                    // Find the filter's output node (capture side) by media.name
+                    let Ok(node) = block_on(pw_eq::find_eq_node(&media_name)).inspect_err(|err| {
+                        tracing::error!(error = &**err, "failed to find EQ node");
+                    }) else {
+                        return;
+                    };
+
+                    let node_id = node.id;
+
+                    filter_window.sync(node_id);
+
+                    self.active_node_id = Some(node_id);
+                    if let Err(err) = self.pw_tx.send(pw::Message::SetActiveNode(NodeInfo {
+                        node_id,
+                        node_name: media_name,
+                        object_serial: node
+                            .info
+                            .props
+                            .get("object.serial")
+                            .and_then(|v| v.as_i64())
+                            .expect("object.serial missing or malformed"),
+                    })) {
+                        tracing::error!(
+                            error = ?err,
+                            "failed to set active node"
+                        );
+                    }
+                }
                 _ => (),
             }
         }

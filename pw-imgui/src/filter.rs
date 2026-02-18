@@ -1,19 +1,17 @@
-use std::{
-    ops::Range,
-};
+use std::ops::Range;
 
 use dear_imgui_rs::{Condition, TableColumnSetup, TableFlags, Ui, WindowFlags};
 use dear_implot::{AxisFlags, PlotCond, PlotUi, XAxis};
-use pw_eq::{
-    tui::{
-        autoeq::{self, param_eq_to_filters},
-        eq::Eq,
-    },
+use futures_executor::block_on;
+use pw_eq::tui::{
+    autoeq::{self, param_eq_to_filters},
+    eq::Eq,
 };
 use pw_util::module::FilterType;
 use strum::IntoEnumIterator;
 
 pub struct FilterWindowState {
+    #[allow(dead_code)]
     pub show_window: bool,
     pub eq: Eq,
     pub preamp_enable: bool,
@@ -36,6 +34,11 @@ impl FilterWindowState {
             range_y: -1.0..1.0,
             filter_types: FilterType::iter().map(|ft| ft.to_string()).collect(),
         }
+    }
+
+    pub fn sync(&self, node_id: u32) {
+        let updates = self.eq.build_all_updates(self.sample_rate);
+        block_on(pw_eq::update_filters(node_id, updates)).expect("@mitkus todo error handling");
     }
 
     pub fn set_eq(&mut self, name: impl Into<String>, parametric_eq: autoeq::ParametricEq) {
@@ -170,6 +173,11 @@ impl FilterWindowState {
         table_hovered
     }
 
+    fn bob(&self) {
+        let updates = self.eq.build_all_updates(self.sample_rate);
+        pw_eq::update_filters(updates);
+    }
+
     fn draw_curve(&mut self, _ui: &Ui, plot_ui: &PlotUi, table_hovered: bool) {
         if self.curve_y.is_empty() {
             return;
@@ -221,7 +229,7 @@ impl FilterWindowState {
                     let _tok = ui.begin_disabled_with_cond(!self.preamp_enable);
                     ui.text("Preamp (dB):");
                     ui.same_line();
-                    ui.slider_config("##preamp", -10.0_f64 , 10.0_f64)
+                    ui.slider_config("##preamp", -10.0_f64, 10.0_f64)
                         .build(&mut self.eq.preamp);
                     ui.same_line();
                 }

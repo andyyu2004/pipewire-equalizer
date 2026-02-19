@@ -173,11 +173,6 @@ impl FilterWindowState {
         table_hovered
     }
 
-    fn bob(&self) {
-        let updates = self.eq.build_all_updates(self.sample_rate);
-        pw_eq::update_filters(updates);
-    }
-
     fn draw_curve(&mut self, _ui: &Ui, plot_ui: &PlotUi, table_hovered: bool) {
         if self.curve_y.is_empty() {
             return;

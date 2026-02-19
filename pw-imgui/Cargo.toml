@@ -16,6 +16,7 @@ pw-eq.workspace = true
 autoeq-api.workspace = true
 pw-util.workspace = true
 reqwest.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
 winit = "0.30.12"
 glow = "0.16"
 glutin = "0.32"
@@ -24,6 +25,5 @@ dear-imgui-rs = "0.8"
 dear-imgui-winit = "0.8"
 dear-imgui-glow = "0.8"
 dear-implot = "0.8.0"
-env_logger = "0.11.8"
 raw-window-handle = "0.6.2"
 futures-executor = "0.3.32"

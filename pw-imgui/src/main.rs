@@ -281,8 +281,7 @@ impl ApplicationHandler for App {
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
-
+    tracing_subscriber::fmt::init();
     let default_audio_sink = match pw_util::get_default_audio_sink().await {
         Ok(node) => {
             tracing::info!(?node, "detected default audio sink");

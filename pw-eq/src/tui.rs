@@ -5,7 +5,7 @@ pub mod eq;
 mod theme;
 
 use crate::{FilterId, UpdateFilter, filter::Filter, update_filters};
-use pw_util::module::{FilterType, TargetObject};
+use pw_util::module::FilterType;
 use std::collections::HashMap;
 use std::thread;
 use std::{
@@ -427,9 +427,9 @@ where
 
                 let node_id = node.id;
 
+                self.active_node_id = Some(node_id);
                 self.sync_all(node_id, self.sample_rate);
 
-                self.active_node_id = Some(node_id);
                 if let Err(err) = self.pw_tx.send(pw::Message::SetActiveNode(NodeInfo {
                     node_id,
                     node_name: media_name,

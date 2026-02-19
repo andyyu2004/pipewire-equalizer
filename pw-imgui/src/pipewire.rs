@@ -63,7 +63,7 @@ impl PipewireState {
         autoeq_window: &mut AutoEqWindowState,
     ) {
         if let Some(node_id) = self.active_node_id {
-            filter_window.sync(node_id);
+            // filter_window.sync(node_id);
         }
 
         if let Ok(notif) = self.notifs_rx.try_recv() {
@@ -80,7 +80,6 @@ impl PipewireState {
                     name,
                     media_name,
                 } => {
-                    println!("Module loaded id {}, name {}", id, name);
                     // Find the filter's output node (capture side) by media.name
                     let Ok(node) = block_on(pw_eq::find_eq_node(&media_name)).inspect_err(|err| {
                         tracing::error!(error = &**err, "failed to find EQ node");
@@ -89,10 +88,16 @@ impl PipewireState {
                     };
 
                     let node_id = node.id;
+                    self.active_node_id = Some(node_id);
+                    tracing::info!(
+                        "Module loaded id {}, name {}, node_id {}",
+                        id,
+                        name,
+                        node_id
+                    );
 
                     filter_window.sync(node_id);
 
-                    self.active_node_id = Some(node_id);
                     if let Err(err) = self.pw_tx.send(pw::Message::SetActiveNode(NodeInfo {
                         node_id,
                         node_name: media_name,

@@ -110,7 +110,6 @@ pub struct App<B: Backend + io::Write> {
     pw_tx: pipewire::channel::Sender<pw::Message>,
     eq: Eq,
     active_node_id: Option<u32>,
-    original_default_sink: Option<NodeInfo>,
     pw_handle: Option<thread::JoinHandle<anyhow::Result<()>>>,
     sample_rate: u32,
     input_mode: InputMode,
@@ -328,7 +327,6 @@ where
             // TODO query sample rate
             sample_rate: 48000,
             active_node_id: Default::default(),
-            original_default_sink: Default::default(),
             input_mode: Default::default(),
             command_history: Default::default(),
             command_history_index: Default::default(),
@@ -770,10 +768,7 @@ where
 
     fn load_module(&mut self) {
         let pw_tx = self.pw_tx.clone();
-        let mut args = self.eq.to_module_args(self.sample_rate);
-        if let Some(sink) = &self.original_default_sink {
-            args.playback_props.target_object = Some(TargetObject::Serial(sink.object_serial));
-        }
+        let args = self.eq.to_module_args(self.sample_rate);
 
         let _ = pw_tx.send(pw::Message::LoadModule {
             name: "libpipewire-module-filter-chain".into(),

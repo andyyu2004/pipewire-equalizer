@@ -46,6 +46,17 @@ impl PipewireState {
         }
     }
 
+    // Needs to be called in more places as appropriate. See tui.rs for when.
+    fn load_module(&mut self, filter_window: &mut FilterWindowState) {
+        let pw_tx = self.pw_tx.clone();
+        let args = filter_window.eq.to_module_args(self.sample_rate);
+
+        let _ = pw_tx.send(pw::Message::LoadModule {
+            name: "libpipewire-module-filter-chain".into(),
+            args: Box::new(args),
+        });
+    }
+
     pub fn update(
         &mut self,
         filter_window: &mut FilterWindowState,
@@ -62,6 +73,7 @@ impl PipewireState {
                 }
                 Notif::AutoEqLoaded { name, response } => {
                     autoeq_window.auto_eq_loaded(name, response);
+                    self.load_module(filter_window);
                 }
                 Notif::PwModuleLoaded {
                     id,

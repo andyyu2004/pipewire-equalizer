@@ -36,7 +36,7 @@ impl FilterWindowState {
         }
     }
 
-    pub fn sync(&self, node_id: u32) {
+    pub fn sync_all(&self, node_id: u32) {
         let updates = self.eq.build_all_updates(self.sample_rate);
         block_on(pw_eq::update_filters(node_id, updates)).expect("@mitkus todo error handling");
     }

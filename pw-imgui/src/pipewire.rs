@@ -62,9 +62,15 @@ impl PipewireState {
         filter_window: &mut FilterWindowState,
         autoeq_window: &mut AutoEqWindowState,
     ) {
-        if let Some(node_id) = self.active_node_id {
-            // filter_window.sync(node_id);
+        // @mitkus not sure the right place to call this, but module needs to be loaded on band
+        // count change and startup/first change.
+        // Sync needs to called on any filter change, ideally in a more fine grained way but
+        // sync_all is probably fine too
+        if let Some(_node_id) = self.active_node_id {
+            // filter_window.sync_all(node_id);
         }
+
+        // self.load_module(filter_window);
 
         if let Ok(notif) = self.notifs_rx.try_recv() {
             match notif {
@@ -73,7 +79,6 @@ impl PipewireState {
                 }
                 Notif::AutoEqLoaded { name, response } => {
                     autoeq_window.auto_eq_loaded(name, response);
-                    self.load_module(filter_window);
                 }
                 Notif::PwModuleLoaded {
                     id,
@@ -96,7 +101,7 @@ impl PipewireState {
                         node_id
                     );
 
-                    filter_window.sync(node_id);
+                    filter_window.sync_all(node_id);
 
                     if let Err(err) = self.pw_tx.send(pw::Message::SetActiveNode(NodeInfo {
                         node_id,

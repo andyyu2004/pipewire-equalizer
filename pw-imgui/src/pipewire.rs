@@ -11,9 +11,9 @@ pub struct PipewireState {
     pub notifs_tx: mpsc::Sender<Notif>,
     pub pw_tx: pipewire::channel::Sender<pw::Message>,
     pub sample_rate: u32,
+    pub active_node_id: Option<u32>,
     notifs_rx: mpsc::Receiver<Notif>,
     pw_handle: Option<JoinHandle<anyhow::Result<()>>>,
-    active_node_id: Option<u32>,
 }
 
 impl PipewireState {
@@ -47,7 +47,7 @@ impl PipewireState {
     }
 
     // Needs to be called in more places as appropriate. See tui.rs for when.
-    fn load_module(&mut self, filter_window: &mut FilterWindowState) {
+    pub fn load_module(&mut self, filter_window: &mut FilterWindowState) {
         let pw_tx = self.pw_tx.clone();
         let args = filter_window.eq.to_module_args(self.sample_rate);
 
@@ -62,16 +62,6 @@ impl PipewireState {
         filter_window: &mut FilterWindowState,
         autoeq_window: &mut AutoEqWindowState,
     ) {
-        // @mitkus not sure the right place to call this, but module needs to be loaded on band
-        // count change and startup/first change.
-        // Sync needs to called on any filter change, ideally in a more fine grained way but
-        // sync_all is probably fine too
-        if let Some(_node_id) = self.active_node_id {
-            // filter_window.sync_all(node_id);
-        }
-
-        // self.load_module(filter_window);
-
         if let Ok(notif) = self.notifs_rx.try_recv() {
             match notif {
                 Notif::AutoEqDbLoaded { entries, targets } => {
@@ -86,7 +76,11 @@ impl PipewireState {
                     media_name,
                 } => {
                     // Find the filter's output node (capture side) by media.name
-                    let Ok(node) = block_on(pw_eq::find_eq_node(&media_name)).inspect_err(|err| {
+                    let Ok(node) = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current()
+                            .block_on(async { pw_eq::find_eq_node(&media_name).await })
+                    })
+                    .inspect_err(|err| {
                         tracing::error!(error = &**err, "failed to find EQ node");
                     }) else {
                         return;
@@ -101,7 +95,7 @@ impl PipewireState {
                         node_id
                     );
 
-                    filter_window.sync_all(node_id);
+                    filter_window.apply_to_pipewire(node_id);
 
                     if let Err(err) = self.pw_tx.send(pw::Message::SetActiveNode(NodeInfo {
                         node_id,

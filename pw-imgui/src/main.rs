@@ -182,6 +182,16 @@ impl AppWindow {
             .filter
             .draw_window(ui, &plot_ui, self.pipewire.sample_rate);
 
+        // Load pipewire module when needed
+        if self.imgui.filter.need_module_load() {
+            self.pipewire.load_module(&mut self.imgui.filter);
+        }
+
+        // Apply pipewire filter + preamp config
+        if let Some(node_id) = self.pipewire.active_node_id {
+            self.imgui.filter.apply_to_pipewire(node_id);
+        }
+
         // Render
         let gl = self.imgui.renderer.gl_context().unwrap();
         unsafe {
@@ -253,7 +263,6 @@ impl ApplicationHandler for App {
                 window.window.request_redraw();
             }
             WindowEvent::CloseRequested => {
-                println!("Close requested");
                 window.pipewire.close();
                 event_loop.exit();
             }
@@ -292,12 +301,6 @@ async fn main() {
             None
         }
     };
-
-    if default_audio_sink.is_none() {
-        println!("Unable to get default audio sink");
-    } else {
-        println!("Got default audio sink");
-    }
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);

@@ -15,6 +15,8 @@ pub struct FilterWindowState {
     pub show_window: bool,
     pub eq: Eq,
     pub preamp_enable: bool,
+    should_sync: bool,
+    prev_bands: Option<usize>,
     sample_rate: u32,
     curve_x: Vec<f64>,
     curve_y: Vec<f64>,
@@ -28,6 +30,8 @@ impl FilterWindowState {
             show_window: true,
             eq: Eq::new("empty", []),
             preamp_enable: true,
+            should_sync: false,
+            prev_bands: None,
             sample_rate,
             curve_x: vec![],
             curve_y: vec![],
@@ -36,15 +40,26 @@ impl FilterWindowState {
         }
     }
 
-    pub fn sync_all(&self, node_id: u32) {
-        let updates = self.eq.build_all_updates(self.sample_rate);
-        block_on(pw_eq::update_filters(node_id, updates)).expect("@mitkus todo error handling");
+    pub fn apply_to_pipewire(&mut self, node_id: u32) {
+        if self.should_sync {
+            self.should_sync = false;
+            let updates = self.eq.build_all_updates(self.sample_rate);
+            block_on(pw_eq::update_filters(node_id, updates)).expect("@mitkus todo error handling");
+        }
     }
 
     pub fn set_eq(&mut self, name: impl Into<String>, parametric_eq: autoeq::ParametricEq) {
         let filters = param_eq_to_filters(parametric_eq);
         self.eq = Eq::new(name, filters);
         self.recalc_curve();
+    }
+
+    pub fn need_module_load(&mut self) -> bool {
+        if self.prev_bands != Some(self.eq.filters.len()) {
+            self.prev_bands = Some(self.eq.filters.len());
+            return true;
+        }
+        return false;
     }
 
     fn recalc_curve(&mut self) {
@@ -168,6 +183,7 @@ impl FilterWindowState {
 
         if needs_recalc {
             self.recalc_curve();
+            self.should_sync = true;
         }
 
         table_hovered
@@ -206,7 +222,7 @@ impl FilterWindowState {
     pub fn draw_window(&mut self, ui: &Ui, plot_ui: &PlotUi, sample_rate: u32) {
         self.sample_rate = sample_rate;
         ui.window("Filter")
-            .size([600.0, 780.0], Condition::FirstUseEver)
+            .size([600.0, 700.0], Condition::FirstUseEver)
             .flags(WindowFlags::NO_RESIZE)
             .build(|| {
                 // Status text
@@ -246,12 +262,6 @@ impl FilterWindowState {
                     .build(ui, || {
                         self.draw_curve(ui, plot_ui, table_hovered);
                     });
-
-                // Would want to live-apply when the values are changing, but first
-                // just a button.
-                if ui.button("Apply") {
-                    // ???
-                }
             });
     }
 }

@@ -78,7 +78,7 @@ impl PipewireState {
                     // Find the filter's output node (capture side) by media.name
                     let Ok(node) = tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current()
-                            .block_on(async { pw_eq::find_eq_node(&media_name).await })
+                            .block_on(pw_eq::find_eq_node(&media_name))
                     })
                     .inspect_err(|err| {
                         tracing::error!(error = &**err, "failed to find EQ node");

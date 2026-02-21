@@ -6,6 +6,21 @@ use tokio::sync::mpsc;
 
 use super::Notif;
 
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct Config {
+    /// Cutoff frequency for applying AutoEQ results. Frequencies above this will be ignored.
+    pub cutoff_frequency: f64,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            cutoff_frequency: 4000.0,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct AutoEqBrowser {
     pub filter_query: String,

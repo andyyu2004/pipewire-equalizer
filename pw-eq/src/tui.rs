@@ -128,10 +128,11 @@ pub struct App<B: Backend + io::Write> {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "kebab-case")]
 pub struct Config {
     keymap: KeyMap,
     pub(super) theme: Theme,
+    autoeq: autoeq::Config,
 }
 
 #[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -153,6 +154,7 @@ impl Config {
         Self {
             keymap: self.keymap,
             theme: config.theme,
+            autoeq: config.autoeq,
         }
     }
 }
@@ -235,7 +237,8 @@ impl Default for Config {
                 },
             }))
             .unwrap(),
-            theme: Theme::default(),
+            theme: Default::default(),
+            autoeq: Default::default(),
         }
     }
 }
@@ -462,6 +465,9 @@ where
                 );
                 self.eq.preamp = response.preamp;
                 self.eq.filters = autoeq::param_eq_to_filters(response);
+                self.eq
+                    .filters
+                    .retain(|f| f.frequency < self.config.autoeq.cutoff_frequency);
                 self.status = Some(Ok(format!("Applied EQ for {}", name)));
                 self.enter_eq_mode();
                 self.load_module();

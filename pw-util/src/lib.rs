@@ -8,7 +8,7 @@ pub mod module;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, process::Stdio};
 use tokio::process::Command;
 
 use self::serde_ex::KeyValuePairs;
@@ -91,6 +91,28 @@ pub struct PwPropInfo {
     pub description: String,
     #[serde(rename = "type")]
     pub type_: serde_json::Value,
+}
+
+pub async fn ensure_utilities() -> Result<()> {
+    Command::new("pw-dump")
+        .arg("pw-dump")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?
+        .wait()
+        .await
+        .context("Failed to check for pw-dump")?;
+
+    Command::new("wpctl")
+        .arg("-h")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?
+        .wait()
+        .await
+        .context("Failed to check for wpctl")?;
+
+    Ok(())
 }
 
 pub async fn dump() -> Result<Vec<PwDumpObject>> {

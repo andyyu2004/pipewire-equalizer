@@ -193,6 +193,10 @@ enum Cmd {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    pw_util::ensure_utilities()
+        .await
+        .context("ensure `pw-dump` and `wpctl` are available in PATH")?;
+
     let args = Args::parse();
 
     // Set up tracing subscriber with file logging

@@ -4,8 +4,8 @@ members = [
     "autoeq-api",
     "keymap",
     "pw-eq",
+    "pw-eq-imgui",
     "pw-util",
-    "pw-imgui",
     "spa-json",
 ]
 

@@ -1,5 +1,5 @@
 [package]
-name = "pw-imgui"
+name = "pw-eq-imgui"
 version = "0.1.0"
 edition = "2024"
 

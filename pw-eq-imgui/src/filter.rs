@@ -3,10 +3,10 @@ use std::ops::Range;
 use dear_imgui_rs::{Condition, TableColumnSetup, TableFlags, Ui, WindowFlags};
 use dear_implot::{AxisFlags, PlotCond, PlotUi, XAxis};
 use futures_executor::block_on;
-use pw_eq::tui::{
+use pw_eq::{FilterId, tui::{
     autoeq::{self, param_eq_to_filters},
     eq::Eq,
-};
+}};
 use pw_util::module::FilterType;
 use strum::IntoEnumIterator;
 
@@ -14,8 +14,11 @@ pub struct FilterWindowState {
     #[allow(dead_code)]
     pub show_window: bool,
     pub eq: Eq,
-    pub preamp_enable: bool,
-    should_sync: bool,
+    bypass: bool,
+    preamp: f64,
+    preamp_enable: bool,
+    should_sync_all: bool,
+    should_sync_preamp: bool,
     prev_bands: Option<usize>,
     sample_rate: u32,
     curve_x: Vec<f64>,
@@ -24,13 +27,29 @@ pub struct FilterWindowState {
     filter_types: Vec<String>,
 }
 
+fn truncate_string(s: &str, max_chars: usize) -> String {
+    match s.char_indices().nth(max_chars) {
+        None => s.to_string(),
+        Some((idx, _)) => format!("{}...", &s[..idx]),
+    }
+}
+
+fn right_aligned_checkbox(ui: &Ui, label: impl AsRef<str>, value: &mut bool) -> bool {
+    let element_width = ui.current_font().calc_text_size(13.0, 1000.0, 1000.0, label.as_ref())[0] + 32.0;
+    ui.set_cursor_pos_x(ui.cursor_pos_x() + f32::max(0.0, ui.get_content_region_avail()[0] - element_width));
+    ui.checkbox(label, value)
+}
+
 impl FilterWindowState {
     pub fn new(sample_rate: u32) -> Self {
         Self {
             show_window: true,
             eq: Eq::new("empty", []),
+            bypass: false,
+            preamp: 0.0,
             preamp_enable: true,
-            should_sync: false,
+            should_sync_all: false,
+            should_sync_preamp: false,
             prev_bands: None,
             sample_rate,
             curve_x: vec![],
@@ -40,17 +59,26 @@ impl FilterWindowState {
         }
     }
 
-    pub fn apply_to_pipewire(&mut self, node_id: u32) {
-        if self.should_sync {
-            self.should_sync = false;
+    pub fn apply_all_to_pipewire(&mut self, node_id: u32) {
+        if self.should_sync_all {
+            self.should_sync_all = false;
             let updates = self.eq.build_all_updates(self.sample_rate);
             block_on(pw_eq::update_filters(node_id, updates)).expect("@mitkus todo error handling");
+        }
+    }
+
+    pub fn apply_preamp_to_pipewire(&mut self, node_id: u32) {
+        if self.should_sync_preamp {
+            self.should_sync_preamp = false;
+            let update = self.eq.build_preamp_update();
+            block_on(pw_eq::update_filters(node_id, [(FilterId::Preamp, update)])).expect("@mitkus todo error handling");
         }
     }
 
     pub fn set_eq(&mut self, name: impl Into<String>, parametric_eq: autoeq::ParametricEq) {
         let filters = param_eq_to_filters(parametric_eq);
         self.eq = Eq::new(name, filters);
+        self.preamp = self.eq.preamp;
         self.recalc_curve();
     }
 
@@ -183,7 +211,7 @@ impl FilterWindowState {
 
         if needs_recalc {
             self.recalc_curve();
-            self.should_sync = true;
+            self.should_sync_all = true;
         }
 
         table_hovered
@@ -211,7 +239,7 @@ impl FilterWindowState {
 
             let _ = plot_ui.line_plot("", &self.curve_x, &self.curve_y);
 
-            if table_hovered {
+            if table_hovered && self.eq.selected_idx < self.eq.filters.len() {
                 let freq = self.eq.filters[self.eq.selected_idx].frequency;
                 let lines = [freq];
                 let _ = plot_ui.inf_lines_vertical("##hovered", &lines);
@@ -228,40 +256,66 @@ impl FilterWindowState {
                 // Status text
                 ui.text(format!(
                     "PipeWire EQ: {} | Bands: {}/{} | Sample Rate: {} Hz",
-                    self.eq.name,
+                    truncate_string(self.eq.name.as_str(), 16),
                     self.eq.filters.len(),
                     self.eq.max_filters,
                     self.sample_rate,
                 ));
+                ui.same_line();
+                ui.separator_vertical();
+                ui.same_line();
+                right_aligned_checkbox(ui, "Bypass", &mut self.bypass);
+                if ui.io().key_ctrl() && ui.is_key_pressed(dear_imgui_rs::Key::B) {
+                    self.bypass = !self.bypass;
+                }
+                if self.eq.bypassed != self.bypass {
+                    self.eq.bypassed = self.bypass;
+                    self.should_sync_all = true;
+                }
                 ui.separator_horizontal();
 
-                // Preamp
                 {
-                    let _tok = ui.begin_disabled_with_cond(!self.preamp_enable);
-                    ui.text("Preamp (dB):");
-                    ui.same_line();
-                    ui.slider_config("##preamp", -10.0_f64, 10.0_f64)
-                        .build(&mut self.eq.preamp);
-                    ui.same_line();
+                    let _tok_bypass = ui.begin_disabled_with_cond(self.bypass); 
+
+                    // Preamp
+                    {
+                        let _tok_preamp = ui.begin_disabled_with_cond(!self.preamp_enable);
+                        ui.text("Preamp (dB):");
+                        ui.same_line();
+                        if ui.slider_config("##preamp", -10.0_f64, 10.0_f64)
+                            .build(&mut self.preamp) {
+                                self.eq.preamp = self.preamp;
+                                self.should_sync_preamp = true;
+                            }
+                        ui.same_line();
+                    }
+                    if right_aligned_checkbox(ui, "Enable", &mut self.preamp_enable) {
+                        if self.preamp_enable {
+                            self.eq.preamp = self.preamp;
+                        }
+                        else {
+                            self.eq.preamp = 0.0;
+                        }
+                        self.should_sync_preamp = true;
+                    }
+
+                    // Filter table
+                    let mut table_hovered = false;
+                    ui.child_window("Filters")
+                        .border(false)
+                        .size([-1.0, 300.0])
+                        .build(ui, || {
+                            table_hovered = self.draw_filters(ui);
+                        });
+
+                    // Freq response curve
+                    ui.child_window("Curve")
+                        .border(false)
+                        .size([-1.0, 300.0])
+                        .build(ui, || {
+                            self.draw_curve(ui, plot_ui, table_hovered);
+                        });
                 }
-                ui.checkbox("Enable", &mut self.preamp_enable);
-
-                // Filter table
-                let mut table_hovered = false;
-                ui.child_window("Filters")
-                    .border(false)
-                    .size([-1.0, 300.0])
-                    .build(ui, || {
-                        table_hovered = self.draw_filters(ui);
-                    });
-
-                // Freq response curve
-                ui.child_window("Curve")
-                    .border(false)
-                    .size([-1.0, 300.0])
-                    .build(ui, || {
-                        self.draw_curve(ui, plot_ui, table_hovered);
-                    });
             });
     }
 }

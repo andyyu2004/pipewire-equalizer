@@ -1,6 +1,5 @@
 use std::thread::{self, JoinHandle};
 
-use futures_executor::block_on;
 use pw_eq::{pw, tui::Notif};
 use pw_util::NodeInfo;
 use tokio::sync::mpsc;
@@ -95,7 +94,7 @@ impl PipewireState {
                         node_id
                     );
 
-                    filter_window.apply_to_pipewire(node_id);
+                    filter_window.apply_all_to_pipewire(node_id);
 
                     if let Err(err) = self.pw_tx.send(pw::Message::SetActiveNode(NodeInfo {
                         node_id,

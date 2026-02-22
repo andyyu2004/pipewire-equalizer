@@ -165,31 +165,49 @@ impl AppWindow {
 
         let ui = self.imgui.context.frame();
 
-        let mut opened = true;
-        ui.show_demo_window(&mut opened);
+        // Menu
+        {
+            let _menu_tok = ui.begin_main_menu_bar();
+            ui.menu("Windows", || {
+                ui.menu_item_toggle("AutoEQ", Some("Ctrl+A"), &mut self.imgui.auto_eq.show_window, true);
+                ui.menu_item_toggle("Filter", Some("Ctrl+F"), &mut self.imgui.filter.show_window, true);
+            });
+        }
 
         // AutoEq window
-        self.imgui
-            .auto_eq
-            .draw_window(ui, self.pipewire.sample_rate);
-        if let Some((name, eq)) = self.imgui.auto_eq.get_eq_to_set() {
-            self.imgui.filter.set_eq(name, eq);
+        if ui.io().key_ctrl() && ui.is_key_pressed(input::Key::A) {
+            self.imgui.auto_eq.show_window = !self.imgui.auto_eq.show_window;
+        }
+        if self.imgui.auto_eq.show_window {
+            self.imgui
+                .auto_eq
+                .draw_window(ui, self.pipewire.sample_rate);
+            if let Some((name, eq)) = self.imgui.auto_eq.get_eq_to_set() {
+                self.imgui.filter.set_eq(name, eq);
+            }
         }
 
         // Filter window
-        let plot_ui = ui.implot(&self.imgui.plot_context);
-        self.imgui
-            .filter
-            .draw_window(ui, &plot_ui, self.pipewire.sample_rate);
-
-        // Load pipewire module when needed
-        if self.imgui.filter.need_module_load() {
-            self.pipewire.load_module(&mut self.imgui.filter);
+        if ui.io().key_ctrl() && ui.is_key_pressed(input::Key::F) {
+            self.imgui.auto_eq.show_window = !self.imgui.auto_eq.show_window;
         }
+        if self.imgui.filter.show_window {
+            let plot_ui = ui.implot(&self.imgui.plot_context);
+            self.imgui
+                .filter
+                .draw_window(ui, &plot_ui, self.pipewire.sample_rate);
 
-        // Apply pipewire filter + preamp config
-        if let Some(node_id) = self.pipewire.active_node_id {
-            self.imgui.filter.apply_to_pipewire(node_id);
+            // Load pipewire module when needed
+            if self.imgui.filter.need_module_load() {
+                self.pipewire.load_module(&mut self.imgui.filter);
+            }
+
+            // Apply pipewire filter + preamp config
+            if let Some(node_id) = self.pipewire.active_node_id {
+                // Ok to call these every frame because they no-op if no updates needed
+                self.imgui.filter.apply_all_to_pipewire(node_id);
+                self.imgui.filter.apply_preamp_to_pipewire(node_id);
+            }
         }
 
         // Render

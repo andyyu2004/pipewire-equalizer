@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 
 pub struct AutoEqWindowState {
     #[allow(dead_code)]
-    show_window: bool,
+    pub show_window: bool,
     search_text: String,
     autoeq_browser: AutoEqBrowser,
     selected: Option<i32>,

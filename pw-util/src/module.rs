@@ -297,6 +297,7 @@ pub enum NodeType {
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, strum::EnumIter,
 )]
+#[repr(usize)]
 pub enum FilterType {
     #[serde(rename = "bq_lowshelf")]
     LowShelf,
@@ -312,6 +313,20 @@ pub enum FilterType {
     HighPass,
     #[serde(rename = "bq_highshelf")]
     HighShelf,
+}
+
+impl fmt::Display for FilterType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            FilterType::LowShelf => "LSC",
+            FilterType::LowPass => "LPQ",
+            FilterType::Peaking => "PK",
+            FilterType::BandPass => "BP",
+            FilterType::Notch => "NO",
+            FilterType::HighPass => "HPQ",
+            FilterType::HighShelf => "HSC",
+        })
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

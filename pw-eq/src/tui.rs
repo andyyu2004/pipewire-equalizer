@@ -1,11 +1,11 @@
 mod action;
-mod autoeq;
+pub mod autoeq;
 mod draw;
-mod eq;
+pub mod eq;
 mod theme;
 
 use crate::{FilterId, UpdateFilter, filter::Filter, update_filters};
-use pw_util::module::{FilterType, TargetObject};
+use pw_util::module::FilterType;
 use std::collections::HashMap;
 use std::thread;
 use std::{
@@ -41,7 +41,7 @@ pub enum Format {
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(super) enum Rotation {
+pub enum Rotation {
     Clockwise,
     CounterClockwise,
 }
@@ -80,6 +80,7 @@ enum Tab {
     AutoEq,
 }
 
+#[derive(Debug)]
 pub enum Notif {
     PwModuleLoaded {
         id: u32,
@@ -109,7 +110,6 @@ pub struct App<B: Backend + io::Write> {
     pw_tx: pipewire::channel::Sender<pw::Message>,
     eq: Eq,
     active_node_id: Option<u32>,
-    original_default_sink: Option<NodeInfo>,
     pw_handle: Option<thread::JoinHandle<anyhow::Result<()>>>,
     sample_rate: u32,
     input_mode: InputMode,
@@ -330,7 +330,6 @@ where
             // TODO query sample rate
             sample_rate: 48000,
             active_node_id: Default::default(),
-            original_default_sink: Default::default(),
             input_mode: Default::default(),
             command_history: Default::default(),
             command_history_index: Default::default(),
@@ -431,9 +430,9 @@ where
 
                 let node_id = node.id;
 
+                self.active_node_id = Some(node_id);
                 self.sync_all(node_id, self.sample_rate);
 
-                self.active_node_id = Some(node_id);
                 if let Err(err) = self.pw_tx.send(pw::Message::SetActiveNode(NodeInfo {
                     node_id,
                     node_name: media_name,
@@ -510,15 +509,7 @@ where
 
     // Sync preamp and all filters to PipeWire
     fn sync_all(&self, node_id: u32, sample_rate: u32) {
-        let mut updates = Vec::with_capacity(self.eq.filters.len() + 1);
-
-        updates.push((FilterId::Preamp, self.eq.build_preamp_update()));
-
-        for idx in 0..self.eq.filters.len() {
-            let id = FilterId::Index(NonZero::new(idx + 1).unwrap());
-            updates.push((id, self.eq.build_filter_update(idx, sample_rate)));
-        }
-
+        let updates = self.eq.build_all_updates(sample_rate);
         self.apply_updates(node_id, updates);
     }
 
@@ -783,10 +774,7 @@ where
 
     fn load_module(&mut self) {
         let pw_tx = self.pw_tx.clone();
-        let mut args = self.eq.to_module_args(self.sample_rate);
-        if let Some(sink) = &self.original_default_sink {
-            args.playback_props.target_object = Some(TargetObject::Serial(sink.object_serial));
-        }
+        let args = self.eq.to_module_args(self.sample_rate);
 
         let _ = pw_tx.send(pw::Message::LoadModule {
             name: "libpipewire-module-filter-chain".into(),

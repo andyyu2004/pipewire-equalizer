@@ -1,0 +1,30 @@
+[package]
+name = "pw-eq-imgui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["fs", "process", "rt-multi-thread"] }
+tracing = { workspace = true }
+serde_json.workspace = true
+spa-json.workspace = true
+pipewire.workspace = true
+strum.workspace = true
+pw-eq.workspace = true
+autoeq-api.workspace = true
+pw-util.workspace = true
+reqwest.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+dirs = "6.0.0"
+winit = "0.30.12"
+glow = "0.16"
+glutin = "0.32"
+glutin-winit = "0.5"
+dear-imgui-rs = "0.8"
+dear-imgui-winit = "0.8"
+dear-imgui-glow = "0.8"
+dear-implot = "0.8.0"
+raw-window-handle = "0.6.2"
+futures-executor = "0.3.32"

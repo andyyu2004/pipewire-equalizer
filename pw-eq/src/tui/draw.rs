@@ -1,5 +1,4 @@
 use super::{App, Eq, InputMode, Tab, ViewMode, theme::Theme};
-use pw_util::module::FilterType;
 use ratatui::{
     layout::Direction,
     prelude::{Backend, Constraint, Layout, Rect},
@@ -306,16 +305,7 @@ fn draw_filters_table(
         .map(|(idx, band)| {
             let freq_str = format!("{:.0}", band.frequency);
 
-            // Format filter type (following APO conventions)
-            let type_str = match band.filter_type {
-                FilterType::LowShelf => "LSC",
-                FilterType::LowPass => "LPQ",
-                FilterType::Peaking => "PK",
-                FilterType::BandPass => "BP",
-                FilterType::Notch => "NO",
-                FilterType::HighPass => "HPQ",
-                FilterType::HighShelf => "HSC",
-            };
+            let type_str = band.filter_type.to_string();
 
             // Use theme colors for gain
             let gain_color = if band.gain > 0.05 {

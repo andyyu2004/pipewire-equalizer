@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use pw_util::{
     apo::{self, FilterType},
     module::{
@@ -7,12 +9,12 @@ use pw_util::{
 };
 use strum::IntoEnumIterator;
 
-use crate::{UpdateFilter, filter::Filter};
+use crate::{FilterId, UpdateFilter, filter::Filter};
 
 use super::{Format, Rotation};
 
 #[derive(Clone)]
-pub(super) struct Eq {
+pub struct Eq {
     pub name: String,
     pub filters: Vec<Filter>,
     pub selected_idx: usize,
@@ -58,16 +60,18 @@ impl Eq {
             return;
         }
 
-        let current_band = &self.filters[self.selected_idx];
-
         // Calculate new frequency between current and next band
-        let new_freq = if self.selected_idx + 1 < self.filters.len() {
-            let next_band = &self.filters[self.selected_idx + 1];
-            // Geometric mean (better for logarithmic frequency scale)
-            (current_band.frequency * next_band.frequency).sqrt()
-        } else {
-            // If at the end, go halfway to 20kHz in log space
-            (current_band.frequency * 20000.0).sqrt().min(20000.0)
+        let new_freq = match self.filters.len() {
+            0 => 100.0,
+            len if self.selected_idx + 1 < len => {
+                let current_band = &self.filters[self.selected_idx];
+                let next_band = &self.filters[self.selected_idx + 1];
+                // Geometric mean (better for logarithmic frequency scale)
+                (current_band.frequency * next_band.frequency).sqrt()
+            }
+            _ => (self.filters.last().unwrap().frequency * 20000.0)
+                .sqrt()
+                .min(20000.0),
         };
 
         let new_filter = Filter {
@@ -78,7 +82,12 @@ impl Eq {
             muted: false,
         };
 
-        self.filters.insert(self.selected_idx + 1, new_filter);
+        if self.selected_idx < self.filters.len() {
+            self.filters.insert(self.selected_idx + 1, new_filter);
+        } else {
+            self.filters.push(new_filter);
+        }
+
         self.selected_idx += 1;
     }
 
@@ -277,5 +286,18 @@ impl Eq {
                 (freq, total_db)
             })
             .collect()
+    }
+
+    pub fn build_all_updates(&self, sample_rate: u32) -> Vec<(FilterId, UpdateFilter)> {
+        let mut updates = Vec::with_capacity(self.filters.len() + 1);
+
+        updates.push((FilterId::Preamp, self.build_preamp_update()));
+
+        for idx in 0..self.filters.len() {
+            let id = FilterId::Index(NonZero::new(idx + 1).unwrap());
+            updates.push((id, self.build_filter_update(idx, sample_rate)));
+        }
+
+        updates
     }
 }

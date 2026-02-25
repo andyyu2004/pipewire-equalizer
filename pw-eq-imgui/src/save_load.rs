@@ -6,9 +6,10 @@ use pw_eq::tui::{
     Format
 };
 
-use dear_imgui_rs::{Ui, Condition, WindowFlags};
+use dear_imgui_rs::{Condition, Key, Ui, WindowFlags};
 
 use pw_util::apo::Config;
+use tracing::instrument::WithSubscriber;
 
 const LAST_SAVED_FILE_PATH: &str = "pw-eq-imgui/last-saved";
 const DEFAULT_SAVE_PATH: &str = "pw-eq-imgui/config.apo";
@@ -78,7 +79,9 @@ impl SaveLoadWindowState {
     }
 
     pub fn draw_window(&mut self, ui: &Ui, eq: &Eq) {
+        let mut show_window = self.show_window;
         ui.window("Save/Load")
+            .opened(&mut show_window)
             .size([500.0, 100.0], Condition::FirstUseEver)
             .flags(WindowFlags::NO_RESIZE)
             .build(|| {
@@ -109,12 +112,14 @@ impl SaveLoadWindowState {
                 // Save button
                 {
                     let _enable_tok = ui.begin_disabled_with_cond(!valid_ext);
-                    if ui.button("Save") {
+                    let key_shortcut = ui.io().key_ctrl() && ui.is_key_pressed(Key::S);
+                    if ui.button("Save") || key_shortcut {
                         let eq_clone = eq.clone();
                         self.result = block_on(eq_clone.save_config(self.path.clone(), format.unwrap()));
                         if self.result.is_ok() {
                             // Not a big deal if this fails, just convience to load last saved file next time
                             let _ = std::fs::write(&self.last_saved_path, self.path.to_str().unwrap());
+                            self.show_window = false;
                         }
                     }
                     ui.same_line();
@@ -123,7 +128,8 @@ impl SaveLoadWindowState {
                 // Load button
                 {
                     let _enable_tok = ui.begin_disabled_with_cond(!valid_ext || !self.path.exists());
-                    if ui.button("Load") {
+                    let key_shortcut = ui.io().key_ctrl() && ui.is_key_pressed(Key::L);
+                    if ui.button("Load") || key_shortcut {
                         match block_on(Config::parse_file(&self.path)) {
                             Err(e) => {
                                 self.result = Err(anyhow::anyhow!("unable to parse apo file: {}", e));
@@ -131,6 +137,7 @@ impl SaveLoadWindowState {
                             Ok(apo) => {
                                 self.conf_to_load = Some(apo);
                                 self.result = Ok(());
+                                self.show_window = false;
                             }
                         }
                     }
@@ -146,5 +153,9 @@ impl SaveLoadWindowState {
 
                 ui.text(status_text);
             });
+        
+        if !show_window {
+            self.show_window = false;
+        }
     }
 }

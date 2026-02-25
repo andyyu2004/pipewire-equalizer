@@ -2849,6 +2849,7 @@ dependencies = [
  "dear-imgui-rs",
  "dear-imgui-winit",
  "dear-implot",
+ "dirs",
  "futures-executor",
  "glow",
  "glutin",

@@ -3,7 +3,7 @@ use std::ops::Range;
 use dear_imgui_rs::{Condition, TableColumnSetup, TableFlags, Ui, WindowFlags};
 use dear_implot::{AxisFlags, PlotCond, PlotUi, XAxis};
 use futures_executor::block_on;
-use pw_eq::{FilterId, tui::{
+use pw_eq::{FilterId, filter::Filter, tui::{
     autoeq::{self, param_eq_to_filters},
     eq::Eq,
 }};
@@ -11,7 +11,6 @@ use pw_util::module::FilterType;
 use strum::IntoEnumIterator;
 
 pub struct FilterWindowState {
-    #[allow(dead_code)]
     pub show_window: bool,
     pub eq: Eq,
     bypass: bool,
@@ -80,6 +79,16 @@ impl FilterWindowState {
         self.eq = Eq::new(name, filters);
         self.preamp = self.eq.preamp;
         self.recalc_curve();
+    }
+
+    pub fn set_eq_apo(&mut self, name: impl Into<String>, apo: pw_util::apo::Config) {
+        let filters: Vec<Filter> = apo.filters.into_iter().map(Into::<Filter>::into).collect();
+        self.eq.name = name.into();
+        self.eq.filters = filters;
+        self.eq.preamp = apo.preamp;
+        self.preamp = apo.preamp;
+        self.recalc_curve();
+        self.should_sync_all = true;
     }
 
     pub fn need_module_load(&mut self) -> bool {

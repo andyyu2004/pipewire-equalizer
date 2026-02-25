@@ -2,6 +2,7 @@ use std::{num::NonZeroU32, sync::Arc, time::Instant};
 
 mod autoeq;
 mod filter;
+mod save_load;
 mod pipewire;
 mod state;
 
@@ -129,6 +130,7 @@ impl AppWindow {
             last_frame: Instant::now(),
             auto_eq: autoeq::AutoEqWindowState::new(pipewire.notifs_tx.clone()),
             filter: filter::FilterWindowState::new(pipewire.sample_rate),
+            save_load: save_load::SaveLoadWindowState::new(),
         };
 
         Ok(Self {
@@ -168,6 +170,11 @@ impl AppWindow {
         // Menu
         {
             let _menu_tok = ui.begin_main_menu_bar();
+            ui.menu("File", || {
+                if ui.menu_item("Save/Load...") {
+                    self.imgui.save_load.show_window = true;
+                }
+            });
             ui.menu("Windows", || {
                 ui.menu_item_toggle("AutoEQ", Some("Ctrl+A"), &mut self.imgui.auto_eq.show_window, true);
                 ui.menu_item_toggle("Filter", Some("Ctrl+F"), &mut self.imgui.filter.show_window, true);
@@ -207,6 +214,15 @@ impl AppWindow {
                 // Ok to call these every frame because they no-op if no updates needed
                 self.imgui.filter.apply_all_to_pipewire(node_id);
                 self.imgui.filter.apply_preamp_to_pipewire(node_id);
+            }
+        }
+
+        // Save/Load window
+        if self.imgui.save_load.show_window {
+            self.imgui.save_load.draw_window(ui, &self.imgui.filter.eq);
+            if let Some(conf) = self.imgui.save_load.loaded_conf() {
+                let name = self.imgui.save_load.path_filename().unwrap();
+                self.imgui.filter.set_eq_apo(name, conf);
             }
         }
 

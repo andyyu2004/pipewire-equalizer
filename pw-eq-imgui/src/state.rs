@@ -3,7 +3,7 @@ use dear_imgui_glow::GlowRenderer;
 use dear_imgui_winit::WinitPlatform;
 use dear_implot::PlotContext;
 
-use crate::{autoeq::AutoEqWindowState, filter::FilterWindowState};
+use crate::{autoeq::AutoEqWindowState, filter::FilterWindowState, save_load::SaveLoadWindowState};
 
 pub struct ImguiState {
     pub renderer: GlowRenderer,
@@ -15,4 +15,5 @@ pub struct ImguiState {
 
     pub auto_eq: AutoEqWindowState,
     pub filter: FilterWindowState,
+    pub save_load: SaveLoadWindowState,
 }

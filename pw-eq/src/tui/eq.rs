@@ -19,6 +19,7 @@ pub(super) struct Eq {
     pub max_filters: usize,
     pub preamp: f64, // dB
     pub bypassed: bool,
+    pub solo_idx: Option<usize>,
 }
 
 impl Eq {
@@ -50,6 +51,7 @@ impl Eq {
             selected_idx: 0,
             max_filters: 31,
             bypassed: false,
+            solo_idx: None,
         }
     }
 
@@ -59,6 +61,7 @@ impl Eq {
         }
 
         let current_band = &self.filters[self.selected_idx];
+        let insert_idx = self.selected_idx + 1;
 
         // Calculate new frequency between current and next band
         let new_freq = if self.selected_idx + 1 < self.filters.len() {
@@ -78,13 +81,27 @@ impl Eq {
             muted: false,
         };
 
-        self.filters.insert(self.selected_idx + 1, new_filter);
+        if let Some(solo_idx) = self.solo_idx
+            && solo_idx >= insert_idx
+        {
+            self.solo_idx = Some(solo_idx + 1);
+        }
+
+        self.filters.insert(insert_idx, new_filter);
         self.selected_idx += 1;
     }
 
     pub fn delete_selected_filter(&mut self) {
         if self.filters.len() > 1 {
+            let removed_idx = self.selected_idx;
             self.filters.remove(self.selected_idx);
+            if let Some(solo_idx) = self.solo_idx {
+                self.solo_idx = match solo_idx.cmp(&removed_idx) {
+                    std::cmp::Ordering::Equal => None,
+                    std::cmp::Ordering::Greater => Some(solo_idx - 1),
+                    std::cmp::Ordering::Less => Some(solo_idx),
+                };
+            }
             if self.selected_idx >= self.filters.len() {
                 self.selected_idx = self.filters.len().saturating_sub(1);
             }
@@ -140,12 +157,36 @@ impl Eq {
         }
     }
 
+    pub fn toggle_solo(&mut self) {
+        let selected = self.selected_idx;
+        self.solo_idx = match self.soloed_index() {
+            Some(idx) if idx == selected => None,
+            _ => Some(selected),
+        };
+    }
+
     pub fn adjust_preamp(&mut self, f: impl FnOnce(f64) -> f64) {
         self.preamp = f(self.preamp).clamp(-12.0, 12.0);
     }
 
     pub fn toggle_bypass(&mut self) {
         self.bypassed = !self.bypassed;
+    }
+
+    pub fn soloed_index(&self) -> Option<usize> {
+        self.solo_idx.filter(|&idx| idx < self.filters.len())
+    }
+
+    pub fn is_band_effectively_muted(&self, idx: usize) -> bool {
+        if let Some(solo_idx) = self.soloed_index() {
+            idx != solo_idx
+        } else {
+            self.filters[idx].muted
+        }
+    }
+
+    pub fn is_band_dimmed(&self, idx: usize) -> bool {
+        self.bypassed || self.is_band_effectively_muted(idx)
     }
 
     pub fn to_module_args(&self, rate: u32) -> ModuleArgs {
@@ -240,10 +281,10 @@ impl Eq {
     }
 
     pub fn build_filter_update(&self, filter_idx: usize, sample_rate: u32) -> UpdateFilter {
-        // Locally copy the band to modify muted state based on bypass
+        // Locally copy the band to apply solo/bypass muting for coefficient updates
         // This is necessary to get the correct biquad coefficients
         let mut band = self.filters[filter_idx];
-        band.muted |= self.bypassed;
+        band.muted = self.is_band_effectively_muted(filter_idx) || self.bypassed;
         let gain = if band.muted { 0.0 } else { band.gain };
 
         UpdateFilter {
@@ -260,6 +301,7 @@ impl Eq {
         // Generate logarithmically spaced frequency points from 20 Hz to 20 kHz
         let log_min = 20_f64.log10();
         let log_max = 20000_f64.log10();
+        let solo_idx = self.soloed_index();
 
         (0..num_points)
             .map(|i| {
@@ -271,7 +313,14 @@ impl Eq {
                 let total_db: f64 = self
                     .filters
                     .iter()
-                    .map(|band| band.magnitude_db_at(freq, sample_rate))
+                    .enumerate()
+                    .map(|(idx, band)| {
+                        let mut band = *band;
+                        if let Some(solo_idx) = solo_idx {
+                            band.muted = idx != solo_idx;
+                        }
+                        band.magnitude_db_at(freq, sample_rate)
+                    })
                     .sum();
 
                 (freq, total_db)

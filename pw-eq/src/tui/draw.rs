@@ -149,6 +149,15 @@ where
                 ));
             }
 
+            if let Some(solo_idx) = eq.soloed_index() {
+                header_spans.push(Span::styled(
+                    format!(" | SOLO {}", solo_idx + 1),
+                    Style::default()
+                        .fg(theme.gain_positive)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
+
             let header = Paragraph::new(Line::from(header_spans)).block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -327,7 +336,7 @@ fn draw_filters_table(
             };
 
             let is_selected = idx == eq_state.selected_idx;
-            let is_dimmed = band.muted || eq_state.bypassed;
+            let is_dimmed = eq_state.is_band_dimmed(idx);
 
             // Use theme color scheme
             let (num_color, type_color, freq_color, q_color) = if is_dimmed {

@@ -170,6 +170,7 @@ impl Default for Config {
                     "j":         "select-next",
                     "k":         "select-previous",
                     "m":         "toggle-mute",
+                    "o":         "toggle-solo",
                     "b":         "toggle-bypass",
                     "a":         "add-filter",
                     "x":         "remove-filter",
@@ -184,7 +185,6 @@ impl Default for Config {
                     "7":       { "select-index": 6 },
                     "8":       { "select-index": 7 },
                     "9":       { "select-index": 8 },
-                    "s":       { "adjust-frequency": { "multiplier": 0.9875 } },
                     "<S-s>":   { "adjust-frequency": { "multiplier": 0.9 } },
                     "f":       { "adjust-frequency": { "multiplier": 1.0125 } },
                     "<S-f>":   { "adjust-frequency": { "multiplier": 1.1 } },
@@ -587,6 +587,7 @@ where
         let before_filter = self.eq.filters[self.eq.selected_idx];
         let before_preamp = self.eq.preamp;
         let before_bypass = self.eq.bypassed;
+        let before_solo = self.eq.soloed_index();
         let before_filter_count = self.eq.filters.len();
 
         match action {
@@ -598,6 +599,7 @@ where
             EqAction::RemoveFilter => self.eq.delete_selected_filter(),
             EqAction::ToggleBypass => self.eq.toggle_bypass(),
             EqAction::ToggleMute => self.eq.toggle_mute(),
+            EqAction::ToggleSolo => self.eq.toggle_solo(),
             EqAction::SelectIndex(idx) => {
                 if idx < self.eq.filters.len() {
                     self.eq.selected_idx = idx;
@@ -614,18 +616,21 @@ where
         }
 
         if let Some(node_id) = self.active_node_id {
-            if before_preamp != self.eq.preamp {
-                self.sync_preamp(node_id);
-            }
+            let bypass_changed = before_bypass != self.eq.bypassed;
+            let solo_changed = before_solo != self.eq.soloed_index();
 
-            if self.eq.selected_idx == before_idx
-                && self.eq.filters[self.eq.selected_idx] != before_filter
-            {
-                self.sync_filter(node_id, self.eq.selected_idx, self.sample_rate);
-            }
-
-            if before_bypass != self.eq.bypassed {
+            if bypass_changed || solo_changed {
                 self.sync_all(node_id, self.sample_rate);
+            } else {
+                if before_preamp != self.eq.preamp {
+                    self.sync_preamp(node_id);
+                }
+
+                if self.eq.selected_idx == before_idx
+                    && self.eq.filters[self.eq.selected_idx] != before_filter
+                {
+                    self.sync_filter(node_id, self.eq.selected_idx, self.sample_rate);
+                }
             }
         }
 
